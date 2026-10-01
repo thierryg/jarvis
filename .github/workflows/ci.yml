@@ -89,7 +89,7 @@ jobs:
           uvx --from cyclonedx-bom cyclonedx-py environment --spec-version 1.6 --output-format JSON \
             --output-file sbom-ci.cdx.json .sbom-venv/bin/python
       - name: Trivy scan of the SBOM
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: sbom
           scan-ref: sbom-ci.cdx.json
@@ -115,14 +115,14 @@ jobs:
           load: true
           tags: jarvis:ci
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: jarvis:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
       - name: Trivy misconfiguration scan (Dockerfile, compose, systemd)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
