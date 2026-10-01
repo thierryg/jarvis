@@ -9,7 +9,7 @@
 # =============================================================================
 # Single image shared by the core and api services (only the command differs).
 # Debian 13 "trixie" (current Debian stable; Debian 12 standard security support ended 2026-07-11).
-FROM python:3.11-slim-trixie
+FROM python:3.14-slim-trixie
 
 # System libraries: compiler toolchain (native wheels), ffmpeg (RTSP decoding), PortAudio/ALSA
 # (audio I/O), OpenGL/GLib/OpenMP runtimes (OpenCV, ONNX Runtime).
