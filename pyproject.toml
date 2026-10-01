@@ -49,7 +49,7 @@ dependencies = [
 core = [
   "ultralytics>=8.3,<9",
   "openvino>=2024.4",
-  "insightface==0.7.3",
+  "insightface==2.0",
   "onnxruntime>=1.17",
   "onvif-zeep-async>=3.1",
   "fast-alpr>=0.4",
