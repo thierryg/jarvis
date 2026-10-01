@@ -1,0 +1,24 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : .gitleaks.toml
+# Purpose : gitleaks configuration (CI "secrets" job, pre-commit): default rules + allowlist
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Only exact placeholder values are allowed, each tied to the file that holds it, so a real
+# secret added anywhere (even in these files) is still reported.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Placeholder Cloudflare token in the Ansible vault template"
+paths = ['''^deploy/ansible/group_vars/all/vault\.example\.yml$''']
+regexes = ['''^0123456789abcdef$''']
+
+[[allowlists]]
+description = "Fake token in the log viewer redaction test"
+paths = ['''^tests/test_camera_logs\.py$''']
+regexes = ['''^abcdef123456$''']

@@ -21,6 +21,25 @@ The version has a single source, `jarvis/VERSION`. Bump it with
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-01
+
+### Changed
+- **Docker image on the reference platform:** `docker/Dockerfile` is now based on
+  `ubuntu:26.04` (Ubuntu Server 26.04 LTS, like the target) instead of Debian 13
+  `python:3.11-slim-trixie`. As on the target, uv (0.7.19, `jarvis_uv_version`) installs
+  Python 3.11 in `/opt/jarvis/python` and the virtualenv in `/opt/jarvis/venv`.
+- **CI:** gitleaks 8.30.1 in the `secrets` job and in pre-commit (was 8.24.3 / 8.18.4).
+- **Clean container scan:** the image removes pip from the uv interpreter (uv does every
+  install) and upgrades setuptools/wheel. Their vendored copies of wheel, jaraco.context,
+  urllib3 and msgpack carried HIGH CVEs. Trivy finds 0 fixable HIGH/CRITICAL in the image.
+
+### Fixed
+- **CI `sca-sbom` and `container` failed at setup:** `aquasecurity/trivy-action@0.28.0` does
+  not exist (the tag is `v0.28.0`). The action is now pinned by commit SHA to v0.36.0.
+- **CI `secrets` reported 2 false positives:** the placeholder Cloudflare token of
+  `vault.example.yml` and the fake token of the log-viewer test. `.gitleaks.toml` keeps the
+  default rules and allows only these exact values in these files.
+
 ## [0.8.1] - 2026-10-01
 
 ### Changed
@@ -360,7 +379,8 @@ Found by the end-to-end container test:
 - **DevSecOps:** ruff, bandit, pip-audit, gitleaks, ShellCheck, Trivy, CodeQL, Dependabot,
   pre-commit, and a CycloneDX 1.6 SBOM.
 
-[Unreleased]: https://example.invalid/jarvis-home/compare/v0.8.1...HEAD
+[Unreleased]: https://example.invalid/jarvis-home/compare/v0.8.2...HEAD
+[0.8.2]: https://example.invalid/jarvis-home/compare/v0.8.1...v0.8.2
 [0.8.1]: https://example.invalid/jarvis-home/compare/v0.8.0...v0.8.1
 [0.8.0]: https://example.invalid/jarvis-home/compare/v0.7.0...v0.8.0
 [0.7.0]: https://example.invalid/jarvis-home/compare/v0.6.0...v0.7.0

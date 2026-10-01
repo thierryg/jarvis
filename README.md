@@ -78,6 +78,7 @@ docker/jarvis-clean.sh                    # stop if running and remove the image
   is generated once in `docker/.local/`, which is ignored by git.
 - **Hardware:** the relay and LEDs are simulated (pulses appear in the logs), and the voice
   assistant is off (no microphone in a container).
+- **Image:** Ubuntu Server 26.04 LTS with Python 3.11 in `/opt/jarvis/venv`, as on the target.
 - **Network:** only `127.0.0.1` is published.
 - **Make targets:** `make docker-start`, `docker-status`, `docker-stop`, `docker-clean`.
 - **Prerequisites:** the scripts check Docker and print the exact fix when something is missing.

@@ -53,6 +53,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: "8.30.1"   # >= 8.25 for the per-file [[allowlists]] of .gitleaks.toml
 
   test:
     runs-on: ubuntu-24.04
@@ -89,7 +90,7 @@ jobs:
           uvx --from cyclonedx-bom cyclonedx-py environment --spec-version 1.6 --output-format JSON \
             --output-file sbom-ci.cdx.json .sbom-venv/bin/python
       - name: Trivy scan of the SBOM
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: sbom
           scan-ref: sbom-ci.cdx.json
@@ -115,14 +116,14 @@ jobs:
           load: true
           tags: jarvis:ci
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: jarvis:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
       - name: Trivy misconfiguration scan (Dockerfile, compose, systemd)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: config
           scan-ref: .
