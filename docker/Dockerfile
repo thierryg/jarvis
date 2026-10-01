@@ -11,7 +11,7 @@
 # Same platform and layout as the target (Ansible "jarvis" role, scripts/jarvis-install.sh):
 # Ubuntu Server 26.04 LTS, Python 3.11 installed by uv in /opt/jarvis/python, virtualenv
 # /opt/jarvis/venv. The uv version is jarvis_uv_version of deploy/ansible/group_vars/all/main.yml.
-FROM ghcr.io/astral-sh/uv:0.7.19 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.21 AS uv
 
 FROM ubuntu:26.04
 
