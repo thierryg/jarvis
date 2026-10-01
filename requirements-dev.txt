@@ -11,7 +11,7 @@
 #   pip install -r requirements-dev.txt && pytest
 pydantic>=2.6
 pyyaml>=6.0
-numpy>=1.26,<2
+numpy>=1.26,<3
 pillow>=10
 fastapi>=0.110
 uvicorn[standard]>=0.29
