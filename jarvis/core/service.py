@@ -30,7 +30,7 @@ from jarvis.config.settings import Settings, resolve_credentials, rtsp_url_with_
 from jarvis.core.control import ControlServer
 from jarvis.storage.database import Database
 from jarvis.core.decision import DecisionEngine
-from jarvis.core.events import ManualGarage
+from jarvis.core.events import FaceRecognized, Intent, ManualGarage, VoiceCommand
 from jarvis.vision.faces import FaceEngine, FaceGallery
 from jarvis.hardware.devices import Hardware
 from jarvis.core import logs
@@ -172,6 +172,8 @@ class Core:
                                        notify=self._notify)
         if self.voice:
             self.decision.activate_voice = self.voice.activate   # recognition window -> voice on
+        # Events produced while the camera plays a simulation file are simulated (relay untouched).
+        self.decision.camera_simulating = lambda: self.camera.simulating
         # Plate automation closes only when nobody (person or vehicle) is in the scene.
         self.decision.scene_clear = lambda: self.vision.active_tracks == 0 and self.vision.active_vehicles == 0
         self.decision.start()
@@ -189,6 +191,9 @@ class Core:
             "system": lambda _req: {"capabilities": self.capabilities, "performance": self.performance},
             "restart": self._restart,
             "say": lambda req: self.tts.say(str(req["text"])[:200]),
+            "simulate_camera": self._simulate_camera,
+            "simulate_face": self._simulate_face,
+            "simulate_voice": self._simulate_voice,
         })
         self.control.start()
         threading.Thread(target=self._maintenance, name="maintenance", daemon=True).start()
@@ -306,6 +311,7 @@ class Core:
             "voice_state": self.voice.state if self.voice else "disabled",
             "voice_window_s": round(self.voice.window_remaining_s) if self.voice else 0,
             "plates_enabled": bool(self.s.plates.enabled),
+            "camera_simulation": Path(self.camera.simulating).name if self.camera and self.camera.simulating else None,
             "vehicles": self.vision.active_vehicles if self.vision else 0,
             "door": self.hw.door_state(),
             "authorized_persons": sorted(self.decision.authorized_persons()),
@@ -435,6 +441,88 @@ class Core:
         """Queue a manual garage pulse on behalf of ``req["actor"]`` (defaults to ``"web"``)."""
         self.events.put(ManualGarage(actor=str(req.get("actor", "web"))))
         return {}
+
+    # --- Simulation (Settings > Simulation) ------------------------------------------------
+    def _simulate_camera(self, req: dict) -> dict:
+        """Play a media file instead of the RTSP stream (``path``), or stop (``path`` null).
+
+        The API validates that the path is inside ``storage.simulation_dir``; it is checked again
+        here because the control socket is the trust boundary of the core.
+        """
+        path = req.get("path")
+        if path:
+            root = self.s.storage.simulation_dir.resolve()
+            p = Path(path).resolve()
+            if not p.is_relative_to(root) or not p.is_file():
+                raise ValueError("simulation file not found")
+            path = str(p)
+        self.camera.simulate(path, loop=self.s.simulation.loop)
+        self.db.log_event("simulation_camera", actor=str(req.get("actor", "web")), file=Path(path).name if path else None)
+        return {"simulating": Path(path).name if path else None}
+
+    def _run_simulated(self, event) -> dict:
+        """Hand a simulated event to the decision engine synchronously; collect what it did.
+
+        Returns:
+            ``{"events": [...], "said": [...]}``: events logged while handling it and the
+            replies Jarvis would have spoken (captured, not played).
+        """
+        last = self.db.list_events(limit=1)
+        first_id = last[0]["id"] if last else 0
+        said: list[str] = []
+        with self.decision.lock:
+            speak, self.decision.say = self.decision.say, said.append
+            try:
+                self.decision.handle(event)
+            finally:
+                self.decision.say = speak
+        events = [{"type": e["type"], "details": e.get("details") or {}, "person_id": e.get("person_id")}
+                  for e in reversed(self.db.list_events(limit=50)) if e["id"] > first_id]
+        return {"events": events, "said": said}
+
+    def _simulate_face(self, req: dict) -> dict:
+        """Simulate the recognition of a person (opens the recognition window like a real one)."""
+        person = self.db.get_person(int(req["person_id"]))
+        if person is None:
+            raise ValueError("unknown person")
+        self.db.log_event("simulation_face", actor=str(req.get("actor", "web")), person_id=person.id)
+        out = self._run_simulated(FaceRecognized(-1, person.id, person.first_name, 1.0, simulated=True))
+        window = self.s.decision.auth_window_s if person.id in self.decision.authorized_persons() else 0
+        return {"person": person.first_name, "window_s": window, **out}
+
+    def _simulate_voice(self, req: dict) -> dict:
+        """Simulate a voice command from typed ``text`` or an uploaded ``audio_path``.
+
+        The live rules apply: the wake word must start the command, and with
+        ``simulation.require_window`` (and ``decision.voice_only_after_recognition``) a person must
+        have been recognized during the recognition window, otherwise the microphone would have
+        been asleep and nothing happens.
+        """
+        from jarvis.voice.simulate import VoiceSimulator
+
+        sim = VoiceSimulator(self.s, self.tts)
+        if req.get("audio_path"):
+            root = self.s.storage.simulation_dir.resolve()
+            p = Path(req["audio_path"]).resolve()
+            if not p.is_relative_to(root) or not p.is_file():
+                raise ValueError("recording not found")
+            res = sim.from_audio(str(p))
+        else:
+            res = sim.from_text(str(req.get("text", ""))[:200])
+        self.db.log_event("simulation_voice", actor=str(req.get("actor", "web")), input=res["input"],
+                          transcript=res["transcript"], intent=res["intent"], wake_word=res["wake_word"])
+        res.update({"events": [], "said": [], "outcome": ""})
+        if not res["wake_word"]:
+            res["outcome"] = "ignored: no wake word"
+            return res
+        if (self.s.simulation.require_window and self.s.decision.voice_only_after_recognition
+                and not self.decision.authorized_persons()):
+            res["outcome"] = "ignored: microphone asleep (no authorized person in the recognition window)"
+            return res
+        intent = Intent(res["intent"]) if res["intent"] else None
+        res.update(self._run_simulated(VoiceCommand(res["transcript"], intent, None, None, True, simulated=True)))
+        res["outcome"] = "handled"
+        return res
 
     def _ptz_home(self, _req: dict) -> dict:
         """Move the PTZ camera to its configured home preset, if any."""

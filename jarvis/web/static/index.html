@@ -546,8 +546,14 @@
           <span class="grow" data-i18n="settings.restart_needed">Some changes take effect after a service restart.</span>
           <button id="restart-core" class="secondary" data-i18n="settings.restart_now">Restart now</button>
         </div>
+        <!-- Settings navigation, two levels (app.js renderSettings()):
+             - #settings-domains: one main tab per domain (Camera & vision, Recognition, Access &
+               voice, Recording, Integrations, System, Simulation), with a dot when it holds unsaved
+               edits; the last tab opened is remembered (localStorage "jarvis.settings.tab");
+             - #settings-nav: the groups of the active domain, as sub-tabs. -->
+        <div id="settings-domains" class="tabs settings-domains" role="tablist"></div>
+        <nav id="settings-nav" class="subtabs" role="tablist"></nav>
         <div class="settings">
-          <nav id="settings-nav"></nav>
           <div>
             <div id="settings-groups"></div>
             <!-- Camera stream card, shown with the "Camera stream" settings group (app.js cameraCard()):
@@ -571,6 +577,49 @@
                   </form>
                   <div id="probe-result" hidden></div>
                 </div>
+              </div>
+            </div>
+            <!-- Camera simulation (sub-tab "Camera simulation"): upload a video or a photo, play it
+                 instead of the RTSP stream (POST /api/simulation/camera) and watch the analysis on it.
+                 Pulses decided meanwhile are only logged unless simulation.drive_relay is on. -->
+            <div id="sim-camera-card" class="card mt" hidden>
+              <div class="card-h"><h2 data-i18n="sim.camera_title">Play a file instead of the camera</h2>
+                <span id="sim-camera-state" class="badge"></span></div>
+              <div class="card-b camera-grid">
+                <div class="stream-box"><img id="sim-stream" alt="" data-i18n-alt="camera.preview_alt">
+                  <p id="sim-stream-empty" class="muted" data-i18n="sim.no_preview">Choose a video or a photo and press Play: the analysis runs on it as on a live camera.</p></div>
+                <div class="stack">
+                  <label class="field"><span data-i18n="sim.upload_media">Add a video or a photo</span>
+                    <input type="file" id="sim-media-upload" accept="video/*,image/*"></label>
+                  <div id="sim-media-list" class="stack"></div>
+                  <button id="sim-camera-stop" class="secondary" hidden><span data-i18n="sim.back_to_camera">Back to the camera stream</span></button>
+                  <p class="muted" data-i18n="sim.relay_note">Garage pulses decided during a simulation are only logged (garage_pulse_simulated) unless "Simulations drive the relay" is on.</p>
+                </div>
+              </div>
+            </div>
+            <!-- Voice simulation (sub-tab "Voice simulation"): 1. simulate the recognition of a person
+                 (opens the recognition window), 2. "say" a command: typed text (Piper + Vosk) or an
+                 uploaded recording (wake word engine + Vosk); the stages and decisions are shown. -->
+            <div id="sim-voice-card" class="card mt" hidden>
+              <div class="card-h"><h2 data-i18n="sim.voice_title">Test a voice command</h2></div>
+              <div class="card-b stack">
+                <div class="toolbar">
+                  <label class="field"><span data-i18n="sim.step1">1. Simulate the recognition of</span><select id="sim-person"></select></label>
+                  <button id="sim-face-btn" class="secondary"><svg class="icon"><use href="#i-user"/></svg><span data-i18n="sim.recognize">Recognize</span></button>
+                </div>
+                <form id="sim-voice-form" class="toolbar">
+                  <label class="field grow"><span data-i18n="sim.step2">2. Say (typed)</span>
+                    <input name="text" maxlength="200" value="Jarvis, ouvre la porte du garage" autocomplete="off"></label>
+                  <button type="button" class="ghost small" data-sim-phrase="Jarvis, ouvre la porte du garage" data-i18n="sim.open">Open</button>
+                  <button type="button" class="ghost small" data-sim-phrase="Jarvis, ferme la porte du garage" data-i18n="sim.close">Close</button>
+                  <button type="submit"><svg class="icon"><use href="#i-mic"/></svg><span data-i18n="sim.say">Say it</span></button>
+                </form>
+                <div class="toolbar">
+                  <label class="field grow"><span data-i18n="sim.or_audio">…or play a recording</span><select id="sim-audio"></select></label>
+                  <label class="field"><span data-i18n="sim.upload_audio">Add a recording</span><input type="file" id="sim-audio-upload" accept="audio/*,.webm"></label>
+                  <button id="sim-audio-btn" class="secondary" data-i18n="sim.play_audio">Use it</button>
+                </div>
+                <div id="sim-voice-result" hidden></div>
               </div>
             </div>
             <div id="monitoring-card" class="card mt" hidden>

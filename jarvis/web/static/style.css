@@ -344,11 +344,23 @@ details.panel > div { padding: 4px 12px 12px; display: flex; flex-direction: col
 /* Settings: 240px group navigation (sticky below the 60px top bar, hence top: 84px) and the
  * parameter list. Each .param row is a two-column grid: text (.t title + badges, .h help,
  * .k key and YAML default) and a 280px control column (.ctl). .dirty highlights unsaved rows. */
-.settings { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 18px; align-items: start; }
-.settings nav { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 2px; }
-.settings nav button { justify-content: flex-start; background: transparent; color: var(--text-2); height: 34px; font-weight: 550; }
-.settings nav button.active { background: var(--accent-soft); color: var(--accent); }
-.settings nav button:hover { filter: none; background: var(--surface-2); }
+/* Settings: main tabs per domain, sub-tabs (pills) per group, then the content. */
+.settings { display: block; margin-top: 14px; }
+.settings-domains { flex-wrap: wrap; }
+.settings-domains .tab-btn { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+.settings-domains .tab-btn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.subtabs button { background: var(--surface); color: var(--text-2); border: 1px solid var(--border); border-radius: 99px;
+                  height: 32px; padding: 0 14px; font-weight: 550; }
+.subtabs button.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.subtabs button:hover { filter: none; background: var(--surface-2); }
+/* Simulation: per-file rows and the stage list of a voice simulation. */
+.sim-file { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.sim-file.playing { border-color: var(--accent); background: var(--accent-soft); }
+.sim-file .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sim-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.sim-steps li { display: grid; grid-template-columns: 11em 1fr; gap: 10px; }
+.sim-steps .k { color: var(--muted); }
 .param { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
 .param:last-child { border-bottom: 0; }
 .param .t { font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -394,8 +406,7 @@ dialog::backdrop { background: rgba(8, 12, 20, .55); backdrop-filter: blur(2px);
  * <= 860px (phone): the login hero stacks above the form, the sidebar becomes a horizontal
  *   scrolling nav bar (brand and version hidden) and the page padding shrinks. */
 @media (max-width: 1100px) {
-  .live-layout, .settings { grid-template-columns: 1fr; }
-  .settings nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .live-layout { grid-template-columns: 1fr; }
   .param { grid-template-columns: 1fr; }
 }
 @media (max-width: 860px) {

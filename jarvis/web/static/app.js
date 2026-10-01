@@ -329,6 +329,7 @@ let statusTimer = null;
 function showLogin(notice = "") {
   clearInterval(statusTimer);
   stopCameraCard();
+  showSimulationCards("");
   stopLogsLive();
   if ($("#password-dialog").open) $("#password-dialog").close();
   $("#stream").removeAttribute("src");
@@ -747,7 +748,7 @@ function go(page) {
   $("#page-title").textContent = t(`nav.${page}`);
   if (page !== "live") $("#stream").removeAttribute("src");   // stop the MJPEG stream off the Live page
   if (page !== "recordings") tlStop();
-  if (page !== "settings") stopCameraCard();      // preview stream and KPI polling of the camera card
+  if (page !== "settings") { stopCameraCard(); showSimulationCards(""); }   // previews and polling of the cards
   if (page !== "logs") stopLogsLive();            // Server-Sent Events of the live log tail
   guard(PAGES[page])();
 }
@@ -1632,30 +1633,216 @@ async function loadSettings() {
   settingsModel = await api("/api/settings");
   dirty.clear();
   updateSavebar();
-  activeGroup = activeGroup && settingsModel.groups.some((g) => g.name === activeGroup) ? activeGroup : settingsModel.groups[0]?.name;
+  if (!(activeGroup && settingsModel.groups.some((g) => g.name === activeGroup))) {
+    let saved = null;
+    try { saved = localStorage.getItem("jarvis.settings.tab"); } catch { /* private mode */ }
+    activeGroup = settingsModel.groups.some((g) => g.name === saved) ? saved : settingsModel.groups[0]?.name;
+  }
   renderSettings();
   loadMonitoring().catch(() => {});
 }
 
 /**
- * Renders the group navigation and the parameters of the active group. Group titles are
- * translated through the key of their first parameter ("grp.<first key>"), because the
- * server's group name is an English label, not a key. The monitoring card is only shown for
- * the group that contains the "monitoring.*" settings. No request.
+ * Main tabs (one per domain), with a dot on the domains holding unsaved edits. Also called by
+ * updateSavebar() after every edit. No request.
+ * @returns {void}
+ */
+function renderDomainTabs() {
+  if (!settingsModel) return;
+  const domain = settingsModel.groups.find((x) => x.name === activeGroup)?.domain;
+  const domains = settingsModel.domains || [...new Set(settingsModel.groups.map((x) => x.domain))];
+  const dirtyDomains = new Set(settingsModel.groups.filter((x) => x.params.some((p) => dirty.has(p.key))).map((x) => x.domain));
+  $("#settings-domains").replaceChildren(...domains.map((d) => el("button", {
+    class: `tab-btn ${d === domain ? "active" : ""}`, role: "tab",
+    onclick: () => { selectGroup(settingsModel.groups.find((x) => x.domain === d).name); } },
+    t(`dom.${d}`, {}, d), dirtyDomains.has(d) ? el("span", { class: "dot", title: t("settings.unsaved") }) : "")));
+}
+
+/**
+ * Renders the two-level navigation (domain tabs, group sub-tabs) and the parameters of the
+ * active group. Group titles are translated through the key of their first parameter
+ * ("grp.<first key>"), domains through "dom.<domain>". The monitoring, camera and simulation
+ * cards follow the active group. No request.
  * @returns {void}
  */
 function renderSettings() {
-  const nav = $("#settings-nav");
-  nav.replaceChildren(...settingsModel.groups.map((g) => el("button", {
-    class: g.name === activeGroup ? "active" : "", onclick: () => { activeGroup = g.name; renderSettings(); } },
-    t(`grp.${g.params[0].key}`, {}, g.name))));
+  const domain = settingsModel.groups.find((x) => x.name === activeGroup)?.domain;
+  renderDomainTabs();
+  // Sub-tabs: the groups of the active domain.
+  $("#settings-nav").replaceChildren(...settingsModel.groups.filter((x) => x.domain === domain).map((x) => el("button", {
+    class: x.name === activeGroup ? "active" : "", role: "tab", onclick: () => selectGroup(x.name) },
+    t(`grp.${x.params[0].key}`, {}, x.name))));
   const g = settingsModel.groups.find((x) => x.name === activeGroup);
   $("#settings-groups").replaceChildren(el("div", { class: "card" },
     el("div", { class: "card-h" }, el("h2", {}, t(`grp.${g.params[0].key}`, {}, g.name))),
     el("div", { class: "card-b flush" }, ...g.params.map(paramRow))));
   $("#monitoring-card").hidden = !g.params.some((p) => p.key.startsWith("monitoring."));
+  showSimulationCards(g.name);
   if (g.params.some((p) => p.key === "camera.rtsp_url")) startCameraCard(); else stopCameraCard();
 }
+
+/**
+ * Opens a settings group (sub-tab) and remembers it for the next visit.
+ * @param {string} name - Group name, as sent by GET /api/settings.
+ * @returns {void}
+ */
+function selectGroup(name) {
+  activeGroup = name;
+  try { localStorage.setItem("jarvis.settings.tab", name); } catch { /* private mode */ }
+  renderSettings();
+}
+
+// ----------------------------------------------------------------------------- simulation
+/** setInterval handle refreshing the simulation cards while one is visible. @type {?number} */
+let simTimer = null;
+/** Last GET /api/simulation payload ({files, camera_simulation, max_upload_mb}). @type {Object} */
+let simState = { files: [] };
+
+/**
+ * Shows the simulation card matching the settings group ("Camera simulation" or "Voice
+ * simulation"), refreshes it every 3 s while visible, and stops everything otherwise.
+ * @param {string} group - Name of the displayed settings group.
+ * @returns {void}
+ */
+function showSimulationCards(group) {
+  const camera = group === "Camera simulation";
+  const voice = group === "Voice simulation";
+  $("#sim-camera-card").hidden = !camera;
+  $("#sim-voice-card").hidden = !voice;
+  if (!camera) $("#sim-stream").removeAttribute("src");
+  clearInterval(simTimer);
+  simTimer = null;
+  if (camera || voice) {
+    refreshSimulation().catch(() => {});
+    if (voice) fillSimPersons().catch(() => {});
+    simTimer = setInterval(() => refreshSimulation().catch(() => {}), 3000);
+  }
+}
+
+/** Person selector of the voice simulation (only people allowed to open the garage make the window open). @returns {Promise<void>} */
+async function fillSimPersons() {
+  const people = await api("/api/persons");
+  $("#sim-person").replaceChildren(...people.map((p) => el("option", { value: String(p.id) },
+    `${p.first_name} ${p.last_name || ""}`.trim() + (p.can_open_garage ? "" : ` (${t("sim.not_allowed")})`))));
+}
+
+/**
+ * GET /api/simulation: media list (with Play / Delete for videos and photos), audio selector,
+ * and the camera source state; the preview stream runs only while a file is playing.
+ * @returns {Promise<void>}
+ */
+async function refreshSimulation() {
+  simState = await api("/api/simulation", { background: true });
+  const playing = simState.camera_simulation;
+  const st = $("#sim-camera-state");
+  st.textContent = playing ? t("sim.playing", { f: playing }) : t("sim.live_camera");
+  st.className = `badge ${playing ? "info" : ""}`;
+  $("#sim-camera-stop").hidden = !playing;
+  const img = $("#sim-stream");
+  if (playing && !$("#sim-camera-card").hidden) {
+    if (!img.getAttribute("src")) img.src = "/api/stream.mjpg";
+    $("#sim-stream-empty").hidden = true;
+  } else {
+    img.removeAttribute("src");
+    $("#sim-stream-empty").hidden = false;
+  }
+  const media = simState.files.filter((f) => f.kind === "video" || f.kind === "image");
+  $("#sim-media-list").replaceChildren(...(media.length ? media.map((f) => el("div", { class: `sim-file ${f.name === playing ? "playing" : ""}` },
+    badge(t(`sim.kind_${f.kind}`, {}, f.kind)), el("span", { class: "grow", title: f.name }, f.name),
+    el("span", { class: "muted" }, `${(f.size / 1048576).toFixed(1)} MB`),
+    el("button", { class: "small", onclick: guard(async () => {
+      await api("/api/simulation/camera", { method: "POST", json: { file: f.name } });
+      toast(t("sim.started", { f: f.name }));
+      await refreshSimulation();
+    }) }, icon("play"), t("sim.play")),
+    el("button", { class: "ghost small", title: t("common.delete"), onclick: guard(async () => {
+      if (f.name === playing) await api("/api/simulation/camera", { method: "POST", json: { file: null } });
+      await api(`/api/simulation/files/${encodeURIComponent(f.name)}`, { method: "DELETE" });
+      await refreshSimulation();
+    }) }, icon("trash")))) : [el("p", { class: "muted" }, t("sim.no_media"))]));
+  const audio = simState.files.filter((f) => f.kind === "audio");
+  const sel = $("#sim-audio");
+  const keep = sel.value;
+  sel.replaceChildren(...(audio.length ? audio.map((f) => el("option", { value: f.name }, f.name)) : [el("option", { value: "" }, t("sim.no_audio"))]));
+  if (audio.some((f) => f.name === keep)) sel.value = keep;
+}
+
+/**
+ * Uploads a simulation file (POST /api/simulation/files, multipart "file").
+ * @param {File} file - Selected file.
+ * @returns {Promise<Object>} {name, kind, size}.
+ */
+async function uploadSimFile(file) {
+  if (file.size > (simState.max_upload_mb || 100) * 1048576) throw new Error(t("sim.too_big", { n: simState.max_upload_mb || 100 }));
+  const form = new FormData();
+  form.append("file", file);
+  toast(t("sim.uploading", { f: file.name }));
+  const r = await api("/api/simulation/files", { method: "POST", form });
+  await refreshSimulation();
+  return r;
+}
+
+$("#sim-media-upload").addEventListener("change", guard(async (e) => {
+  if (!e.target.files.length) return;
+  const r = await uploadSimFile(e.target.files[0]);
+  e.target.value = "";
+  await api("/api/simulation/camera", { method: "POST", json: { file: r.name } });   // play it at once
+  toast(t("sim.started", { f: r.name }));
+  await refreshSimulation();
+}));
+$("#sim-camera-stop").addEventListener("click", guard(async () => {
+  await api("/api/simulation/camera", { method: "POST", json: { file: null } });
+  toast(t("sim.stopped"));
+  await refreshSimulation();
+}));
+$("#sim-audio-upload").addEventListener("change", guard(async (e) => {
+  if (!e.target.files.length) return;
+  const r = await uploadSimFile(e.target.files[0]);
+  e.target.value = "";
+  $("#sim-audio").value = r.name;
+}));
+
+/**
+ * Renders the outcome of a simulation: the stages (wake word, speech recognition, transcript,
+ * intent), what the decision engine logged (badges) and what Jarvis would have said.
+ * @param {Object} r - Response of POST /api/simulation/voice or /api/simulation/face.
+ * @returns {void}
+ */
+function showSimResult(r) {
+  const out = $("#sim-voice-result");
+  out.hidden = false;
+  const yes = (v) => (v ? badge(t("common.yes"), "ok") : badge(t("common.no"), "bad"));
+  const rows = [];
+  if (r.person !== undefined) {
+    rows.push([t("sim.recognized"), r.person], [t("sim.window"), r.window_s ? t("sim.window_open", { n: r.window_s }) : t("sim.window_closed")]);
+  } else {
+    rows.push([t("sim.wake_word"), yes(r.wake_word)], [t("sim.stt"), r.stt || "—"], [t("sim.transcript"), r.transcript || "—"],
+      [t("sim.intent"), r.intent ? t(`sim.intent_${r.intent}`, {}, r.intent) : "—"], [t("sim.outcome"), r.outcome || "—"]);
+  }
+  rows.push([t("sim.decisions"), r.events?.length ? el("span", {}, ...r.events.map((e) => [badge(eventLabel(e.type), eventKind(e.type)), " "]).flat()) : "—"],
+    [t("sim.said"), r.said?.length ? r.said.map((x) => `« ${x} »`).join(" ") : "—"]);
+  out.replaceChildren(el("ul", { class: "sim-steps" }, ...rows.map(([k, v]) => el("li", {}, el("span", { class: "k" }, k), el("span", {}, v)))));
+}
+
+$("#sim-face-btn").addEventListener("click", guard(async () => {
+  if (!$("#sim-person").value) throw new Error(t("sim.no_person"));
+  showSimResult(await api("/api/simulation/face", { method: "POST", json: { person_id: Number($("#sim-person").value) } }));
+}));
+for (const b of document.querySelectorAll("[data-sim-phrase]")) {
+  b.addEventListener("click", () => { $("#sim-voice-form").elements.text.value = b.dataset.simPhrase; });
+}
+$("#sim-voice-form").addEventListener("submit", guard(async (e) => {
+  e.preventDefault();
+  $("#sim-voice-result").hidden = false;
+  $("#sim-voice-result").replaceChildren(el("p", { class: "muted" }, t("sim.running")));
+  showSimResult(await api("/api/simulation/voice", { method: "POST", json: { text: e.target.elements.text.value } }));
+}));
+$("#sim-audio-btn").addEventListener("click", guard(async () => {
+  if (!$("#sim-audio").value) throw new Error(t("sim.no_audio"));
+  $("#sim-voice-result").hidden = false;
+  $("#sim-voice-result").replaceChildren(el("p", { class: "muted" }, t("sim.running")));
+  showSimResult(await api("/api/simulation/voice", { method: "POST", json: { file: $("#sim-audio").value } }));
+}));
 
 // ----------------------------------------------------------------------------- camera stream card
 /** setInterval handle of the camera card KPI polling (null when the card is hidden). @type {?number} */
@@ -1835,6 +2022,7 @@ function paramRow(p) {
  * @returns {void}
  */
 function updateSavebar() {
+  renderDomainTabs();
   $("#savebar").hidden = dirty.size === 0;
   $("#dirty-count").textContent = t("settings.dirty", { n: dirty.size });
 }

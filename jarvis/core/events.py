@@ -48,6 +48,7 @@ class FaceRecognized:
     score: float
     ts: float = field(default_factory=time.time)
     sighting_id: int | None = None
+    simulated: bool = False          # injected by Settings > Simulation (see SimulationConfig)
 
 
 @dataclass
@@ -90,6 +91,7 @@ class VoiceCommand:
     speaker_score: float | None = None
     via_wakeword: bool = True
     ts: float = field(default_factory=time.time)
+    simulated: bool = False          # injected by Settings > Simulation
 
 
 @dataclass

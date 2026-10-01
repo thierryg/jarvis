@@ -91,6 +91,12 @@ class DecisionEngine(threading.Thread):
         self._vehicles: dict[int, dict] = {}
         self._pending_close: dict | None = None
         self.scene_clear: Callable[[], bool] | None = None
+        # Simulation (Settings > Simulation): events injected by the user, or frames coming from
+        # a simulated camera, never drive the relay unless simulation.drive_relay is set.
+        self.camera_simulating: Callable[[], object] | None = None
+        self._sim = False
+        # Serializes event handling: the decision thread and the synchronous simulation calls.
+        self.lock = threading.RLock()
         self._halt = threading.Event()
 
     def stop(self) -> None:
@@ -109,9 +115,10 @@ class DecisionEngine(threading.Thread):
             except queue.Empty:
                 event = None
             try:
-                if event is not None:
-                    self.handle(event)
-                self.tick()
+                with self.lock:
+                    if event is not None:
+                        self.handle(event)
+                    self.tick()
             except Exception:
                 log.exception("Error while handling event %r", event)
 
@@ -121,6 +128,7 @@ class DecisionEngine(threading.Thread):
         Args:
             event: The event to process.
         """
+        self._sim = bool(getattr(event, "simulated", False)) or bool(self.camera_simulating and self.camera_simulating())
         if isinstance(event, FaceRecognized):
             self._on_face(event)
         elif isinstance(event, UnknownFaceSeen):
@@ -289,7 +297,8 @@ class DecisionEngine(threading.Thread):
         elif self.s.plates.unknown_notify:
             self.notify("plate_unknown" if status == "unknown" else "plate_refused", **details)
         self._vehicles[ev.track_id] = {"plate": ev.plate, "status": status, "row": row, "person": person,
-                                       "read_id": read_id, "opened": False, "leaving": False, "refused": set()}
+                                       "read_id": read_id, "opened": False, "leaving": False, "refused": set(),
+                                       "simulated": self._sim}
 
     def _refuse(self, v: dict, reason: str, action: str = "open") -> None:
         """Log (once per vehicle and reason) why the garage was not operated."""
@@ -373,6 +382,7 @@ class DecisionEngine(threading.Thread):
         if now < pc["due"]:
             return
         self._pending_close = None
+        self._sim = bool(v.get("simulated"))
         door = self.hw.door_state()
         if door != "open":
             return self._refuse(v, "door_state_unknown" if door is None else "already_closed", "close")
@@ -398,6 +408,15 @@ class DecisionEngine(threading.Thread):
             (cooldown between pulses).
         """
         door_before = self.hw.door_state()
+        if self._sim and not self.s.simulation.drive_relay:
+            # Simulation: the decision is traced exactly like a real one, the relay stays still.
+            self.db.log_event("garage_pulse_simulated", actor=actor, person_id=person_id,
+                              intent=intent.value if intent else "toggle", source=source, door_before=door_before,
+                              **details)
+            log.info("Simulated garage pulse (%s, %s): relay NOT driven (simulation.drive_relay is off)",
+                     source, intent.value if intent else "toggle")
+            self.hw.indicate("green", self.s.decision.led_on_s)
+            return True
         ok = self.hw.pulse_garage()
         self.db.log_event("garage_pulse" if ok else "garage_pulse_rejected", actor=actor, person_id=person_id,
                           intent=intent.value if intent else "toggle", source=source, door_before=door_before,

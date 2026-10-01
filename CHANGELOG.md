@@ -21,6 +21,40 @@ The version has a single source, `jarvis/VERSION`. Bump it with
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-01
+
+### Added
+- **Tabbed settings:** the Settings page now has seven domain tabs (Camera & vision,
+  Recognition, Access & voice, Recording, Integrations, System, Simulation), each with one
+  sub-tab per parameter group. A dot marks the tabs with unsaved edits, and the last opened
+  sub-tab is remembered. `GET /api/settings` returns the `domain` of each group and the
+  ordered `domains` list (`DOMAINS` in `jarvis/config/catalog.py`).
+- **Camera simulation** (Settings > Simulation > Camera simulation): upload a video or a photo
+  and play it instead of the RTSP stream, through the whole real pipeline (detection, tracking,
+  faces, plates, preview). Videos are paced at their own frame rate and looped
+  (`simulation.loop`); "Back to the camera stream" returns to RTSP without a restart.
+- **Voice simulation** (Settings > Simulation > Voice simulation): simulate the recognition of
+  a person (opens the recognition window), then "say" a command typed as text (Piper speech
+  transcribed by Vosk with the live grammar, or the text parsed directly when the models are
+  missing) or an uploaded recording (wake word engine, then Vosk). Each stage, the decisions
+  and what Jarvis would say are shown. `simulation.require_window` applies the live
+  recognition-window rule.
+- **API:** `GET /api/simulation`, `POST /api/simulation/files` (streamed, capped at
+  `simulation.max_upload_mb`, 100 MB; nginx allows 100 MB on this route only),
+  `DELETE /api/simulation/files/{name}`, `POST /api/simulation/camera`, `/face`, `/voice`.
+  Every action is audited (`simulation_*` events).
+- **Tests:** `tests/test_simulation.py` (13 tests); the browser check covers the tabs and both
+  simulation cards (47 checks).
+- 68 interface strings, translated into the 12 locales.
+
+### Security
+- **Simulations never drive the relay by default:** a garage pulse decided from a simulated
+  face, a simulated voice command, or while the camera plays a file, is logged as
+  `garage_pulse_simulated` and the relay is not driven. `simulation.drive_relay` (DANGER, off
+  by default) lifts this guard for an end-to-end test with the real door.
+- Simulation file names are bare names only (no path), with an extension allow-list; the core
+  checks again that the file is inside `storage.simulation_dir`.
+
 ## [0.8.2] - 2026-10-01
 
 ### Changed
@@ -379,7 +413,8 @@ Found by the end-to-end container test:
 - **DevSecOps:** ruff, bandit, pip-audit, gitleaks, ShellCheck, Trivy, CodeQL, Dependabot,
   pre-commit, and a CycloneDX 1.6 SBOM.
 
-[Unreleased]: https://example.invalid/jarvis-home/compare/v0.8.2...HEAD
+[Unreleased]: https://example.invalid/jarvis-home/compare/v0.9.0...HEAD
+[0.9.0]: https://example.invalid/jarvis-home/compare/v0.8.2...v0.9.0
 [0.8.2]: https://example.invalid/jarvis-home/compare/v0.8.1...v0.8.2
 [0.8.1]: https://example.invalid/jarvis-home/compare/v0.8.0...v0.8.1
 [0.8.0]: https://example.invalid/jarvis-home/compare/v0.7.0...v0.8.0

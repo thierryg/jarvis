@@ -39,6 +39,7 @@ Software version: see the central file `jarvis/VERSION` (command `jarvis version
 15. [Known limitations](#15-known-limitations)
 16. [Deployment and operations tooling](#16-deployment-and-operations-tooling)
 17. [License plate recognition and vehicle automation](#17-license-plate-recognition-and-vehicle-automation)
+18. [Settings tabs and simulation](#18-settings-tabs-and-simulation)
 
 ---
 
@@ -554,6 +555,9 @@ Every refusal lights the red LED, plays a voice message and creates the `voice_d
 | **People** | Creation, right to open the garage, **watchlist**, **access rules** (days, hours, expiration), photos (multiple upload, deletion, "auto" mark), voice profile (10 s recording, removal), last sighting, full deletion. |
 | **Unknowns** | **Clustered** visitors with their number of visits and sightings, and the dates. Association with an existing or new person (**retroactive identification**), deletion. |
 | **Log** | All events (§12), pagination into the past, colors for openings and refusals. |
+| **Vehicles** | Plate registry and read history (§17.3). |
+| **Logs** | Service log with text search, level filter and live tail (secrets masked). |
+| **Settings** | Every hot-reloadable parameter, in **domain tabs** with one **sub-tab per group**; camera stream test and annotated preview; **simulation** of the camera and the voice (§18). |
 
 ### 9.3 Common procedures
 
@@ -626,6 +630,13 @@ Prefix `/api`. Every route requires a session, except `POST /login`. Every metho
 | GET | `/status` | — | core status (see `status`, §2.4) |
 | POST | `/garage/pulse` · `/ptz/home` · `/say` | — · — · `{text}` | `{}` |
 | GET | `/stream.mjpg` | — | `multipart/x-mixed-replace`, 5 frames/s |
+| GET | `/settings` | — | `{groups: [{name, domain, params}], domains}` (§18.1) |
+| GET | `/simulation` | — | `{files: [{name, kind, size}], camera_simulation, max_upload_mb}` |
+| POST | `/simulation/files` | multipart `file` (video, photo or recording; `simulation.max_upload_mb`) | `{name, kind, size}` · 413 · 415 |
+| DELETE | `/simulation/files/{name}` | — | `{}` |
+| POST | `/simulation/camera` | `{file}` (`null` = back to the camera) | `{camera_simulation}` · 422 not a video or photo |
+| POST | `/simulation/face` | `{person_id}` | `{person, window_s, events, said}` · 404 |
+| POST | `/simulation/voice` | `{text}` or `{file}` | `{wake_word, stt, transcript, intent, outcome, events, said}` |
 
 ---
 
@@ -685,7 +696,8 @@ Prefix `/api`. Every route requires a session, except `POST /login`. Every metho
 | System | `core_started`, `core_stopped`, `user_created`, `default_admin_created` |
 | Vision | `face_recognized`, `face_unknown`, `watchlist_seen`, `access_denied_schedule`, `face_auto_enrolled` |
 | Voice | `voice_not_understood`, `voice_cancel`, `voice_denied` (reasons `no_authorized_face`, `speaker_mismatch`) |
-| Garage | `garage_pulse` (actor, person, intent, source, door state before), `garage_pulse_rejected` |
+| Garage | `garage_pulse` (actor, person, intent, source, door state before), `garage_pulse_rejected`, `garage_pulse_simulated` (decided during a simulation, relay not driven) |
+| Web: simulation | `simulation_file_added`, `simulation_file_deleted`, `simulation_camera`, `simulation_face`, `simulation_voice` |
 | Web: session | `login`, `login_failed` (with IP), `logout`, `password_changed`, `password_change_failed`, `admin_factory_reset` |
 | Web: people | `person_created`, `person_updated`, `person_deleted`, `face_added`, `face_deleted`, `voice_added`, `voice_deleted` |
 | Web: unknowns | `unknown_labeled`, `unknown_deleted`, `cluster_labeled`, `cluster_deleted` |
@@ -769,6 +781,8 @@ File: `/etc/jarvis/config.yaml`, validated by pydantic. An unknown key is ignore
 | **storage** | | |
 | `data_dir` | `/var/lib/jarvis` | data root |
 | `unknown_retention_days`, `sighting_retention_days`, `event_retention_days` | `30`, `90`, `180` | GDPR retention |
+| **simulation** | | |
+| `loop`, `drive_relay`, `require_window`, `max_upload_mb` | `true`, `false` (DANGER), `true`, `100` | camera and voice simulation (§18) |
 | **api** | | |
 | `host`, `port`, `session_hours`, `cookie_secure`, `max_upload_mb` | `127.0.0.1`, `8000`, `12`, `true`, `15` | web server |
 | **notifications** | | |
@@ -807,7 +821,7 @@ Default target: 6 analyses per second. On an i5-4570T (2 cores): `vision.process
 
 ### 14.3 Automated tests
 
-124 tests (`pytest`), none of which needs a model or hardware:
+201 tests (`pytest`), none of which needs a model or hardware. Main files:
 
 | File | Tests | Scope |
 |---|---|---|
@@ -822,6 +836,7 @@ Default target: 6 analyses per second. On an i5-4570T (2 cores): `vision.process
 | `tests/test_sysinfo.py` | 5 | hardware detection, auto-tuning, capabilities snapshot |
 | `tests/test_version_cert.py` | 5 | single version source, `/api/me` version, bump rules, `jarvis-cert` local lifecycle and input validation |
 | `tests/test_default_admin.py` | 3 | default admin/admin, forced password change, password policy |
+| `tests/test_simulation.py` | 13 | domain of every settings group, wake word token, voice chain with fallback, simulated pulses never drive the relay (unless `drive_relay`), camera simulation marks events, upload validation (size, type, path traversal) |
 | `tests/test_mqtt.py` | 2 | Home Assistant discovery, MQTT bridge against a real broker |
 
 The Ansible deployment has its own end-to-end test (`deploy/ansible/tests/jarvis-container-test.sh`): an
@@ -997,4 +1012,76 @@ Every refusal is logged once per vehicle and reason. The other reasons are `plat
   - Limit each registered plate with an expiration date and the linked person's access rules.
   - Keep `unknown_notify` on.
   - Review the plate reads regularly.
+
+---
+
+## 18. Settings tabs and simulation
+
+### 18.1 Tabbed settings
+
+The Settings page has two navigation levels. Each **domain tab** groups the parameter groups of
+one domain; each group is a **sub-tab**. The mapping is `DOMAINS` in `jarvis/config/catalog.py`,
+and a test checks that every group belongs to exactly one domain.
+
+| Domain tab | Sub-tabs (groups) |
+|---|---|
+| Camera & vision | Camera stream, PTZ camera, Person detection, Performance |
+| Recognition | Face recognition, Unknown visitors, Adaptive learning, Search by face, License plates |
+| Access & voice | Decision and access, Voice |
+| Recording | Video recording, Time-lapse |
+| Integrations | Smart home (MQTT), Notifications, Monitoring (Grafana) |
+| System | Web interface, Logging, Data retention (GDPR), Secrets |
+| Simulation | Camera simulation, Voice simulation |
+
+- **Unsaved edits:** a dot marks each domain tab that holds unsaved edits. The save bar applies
+  them all at once, whatever the tab.
+- **Remembered tab:** the last opened sub-tab is kept in the browser (`localStorage`,
+  `jarvis.settings.tab`).
+- **Cards:** the camera card (stream test, annotated preview) follows Camera stream, the
+  monitoring card follows Monitoring, and the simulation cards follow their sub-tabs.
+
+### 18.2 Camera simulation
+
+Plays an uploaded file **instead of the RTSP stream**, through the whole real pipeline: person
+detection, tracking, face recognition, plates, preview and recordings.
+
+- **Inputs:** a video (`.mp4`, `.mkv`, `.mov`, `.avi`, `.m4v`; `.webm` counts as a recording) is paced at its own frame
+  rate and looped if `simulation.loop` is on; a photo (`.jpg`, `.png`…) is repeated at 5 frames/s.
+- **Switching:** `RtspCamera.simulate(path)` switches the source without restarting the core;
+  "Back to the camera stream" (or `{file: null}`) returns to RTSP.
+- **Not saved:** the simulation is not persisted. A core restart goes back to the camera.
+- **Files:** uploads go to `storage.simulation_dir` (`/var/lib/jarvis/simulation`). The API
+  accepts a bare file name only (no path), checks the extension and caps the size
+  (`simulation.max_upload_mb`, 100 MB; nginx allows 100 MB on this route only).
+
+### 18.3 Voice simulation
+
+Tests the voice chain **without a microphone** (`jarvis/voice/simulate.py`):
+
+1. **Recognize a person:** `simulate_face` injects a `FaceRecognized` event for the chosen
+   person. As with a real recognition, it opens the recognition window (green LED, greeting).
+2. **Say a command**, typed or recorded:
+   - **typed:** the text must start with the wake word ("Jarvis, ouvre la porte du garage").
+     The command part is synthesized by Piper, then transcribed by Vosk with the live restricted
+     grammar. Without the Piper or Vosk model, the text is parsed directly (the result says so).
+   - **recording:** an uploaded audio file (any format FFmpeg reads) goes through the configured
+     wake word engine, then Vosk transcribes what follows the wake word.
+3. **Result:** each stage is shown (wake word heard, speech recognition, transcript, command,
+   outcome), with the decisions logged by the engine and what Jarvis would have said.
+
+The live rules apply: no wake word → ignored; with `simulation.require_window` (default) and
+`decision.voice_only_after_recognition`, a command outside a recognition window is ignored
+("microphone asleep"). Turn `require_window` off to test the voice chain alone.
+
+### 18.4 Safety: the relay
+
+> **A garage pulse decided during a simulation does not drive the relay.** Simulated faces and
+> voice commands carry `simulated=True`, and every event produced while the camera plays a file
+> is also treated as simulated. The decision engine logs `garage_pulse_simulated` (with the
+> intent and the person) and lights the green LED, but sends nothing to the relay.
+>
+> `simulation.drive_relay` (DANGER, off by default) lifts this guard for an end-to-end test
+> with the real door. Turn it back off afterwards.
+
+Every simulation action is audited with its author (`simulation_*` events).
 

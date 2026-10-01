@@ -72,8 +72,8 @@ from jarvis.config.settings import (VALUE_SOURCES, Settings, load_settings, reso
 from jarvis.core.control import ControlClient, CoreUnavailable
 from jarvis.core.service import remove_files
 from jarvis.storage.database import Database, person_snapshot
-from jarvis.config.catalog import (BY_KEY, CATALOG, apply_overrides, check_rtsp_url, diff, get_path, set_path,
-                                   validate_changes)
+from jarvis.config.catalog import (BY_KEY, CATALOG, DOMAINS, GROUP_DOMAIN, apply_overrides, check_rtsp_url, diff,
+                                   get_path, set_path, validate_changes)
 from jarvis.core.plates import normalize_plate, plate_status, validate_plate
 from jarvis.web import logview, probe
 from jarvis.core.monitoring import read_monitoring_status, render_metrics, write_monitoring_state
@@ -241,6 +241,31 @@ class ProbeIn(BaseModel):
     """Body of ``POST /api/camera/probe``: URL to test (the saved one when omitted)."""
 
     url: str | None = Field(default=None, max_length=1024)
+
+
+class SimCameraIn(BaseModel):
+    """Body of ``POST /api/simulation/camera``: file to play, or ``null`` to stop."""
+
+    file: str | None = Field(default=None, max_length=120)
+
+
+class SimFaceIn(BaseModel):
+    """Body of ``POST /api/simulation/face``."""
+
+    person_id: int
+
+
+class SimVoiceIn(BaseModel):
+    """Body of ``POST /api/simulation/voice``: typed command (``Jarvis, ouvre la porte du garage``)
+    or the name of an uploaded recording."""
+
+    text: str | None = Field(default=None, max_length=200)
+    file: str | None = Field(default=None, max_length=120)
+
+
+SIM_VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v")
+SIM_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
+SIM_AUDIO_EXTS = (".wav", ".mp3", ".ogg", ".oga", ".opus", ".webm", ".m4a", ".flac")
 
 
 class SettingsResetIn(BaseModel):
@@ -1214,7 +1239,8 @@ def create_app(settings: Settings | None = None, db: Database | None = None,
             if prm.type == "secret":  # write-only: never send the value back
                 entry.update(value=None, default=None, is_set=bool(value))
             groups.setdefault(prm.group, []).append(entry)
-        return {"groups": [{"name": g, "params": ps} for g, ps in groups.items()]}
+        return {"groups": [{"name": g, "domain": GROUP_DOMAIN.get(g, "system"), "params": ps} for g, ps in groups.items()],
+                "domains": list(DOMAINS)}
 
     def after_settings_change(keys: list[str]) -> None:
         """Apply API-side effects of a settings change: reconfigure logging, publish monitoring state."""
@@ -1621,6 +1647,110 @@ def create_app(settings: Settings | None = None, db: Database | None = None,
 
         return StreamingResponse(gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    # --- Simulation (Settings > Simulation) -------------------------------------------------
+    def sim_dir() -> Path:
+        d = settings.storage.simulation_dir
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def sim_file(name: str) -> Path:
+        """Resolve an uploaded simulation file by name (no path components accepted)."""
+        if not name or "/" in name or "\\" in name or name.startswith("."):
+            raise HTTPException(422, "Invalid file name")
+        p = (sim_dir() / name).resolve()
+        if not p.is_relative_to(sim_dir().resolve()) or not p.is_file():
+            raise HTTPException(404, "Unknown simulation file")
+        return p
+
+    def sim_kind(name: str) -> str:
+        n = name.lower()
+        return "video" if n.endswith(SIM_VIDEO_EXTS) and not n.endswith(".webm") else (
+            "image" if n.endswith(SIM_IMAGE_EXTS) else ("audio" if n.endswith(SIM_AUDIO_EXTS) else "other"))
+
+    @app.get("/api/simulation")
+    def simulation_state(user: dict = Depends(current_user)):
+        """Uploaded simulation media and the current camera source."""
+        files = [{"name": p.name, "kind": sim_kind(p.name), "size": p.stat().st_size, "mtime": p.stat().st_mtime}
+                 for p in sorted(sim_dir().iterdir(), key=lambda q: q.stat().st_mtime, reverse=True) if p.is_file()]
+        try:
+            st = core.call("status")
+            playing = st.get("camera_simulation")
+        except CoreUnavailable:
+            playing = None
+        return {"files": files, "camera_simulation": playing, "max_upload_mb": settings.simulation.max_upload_mb}
+
+    @app.post("/api/simulation/files")
+    async def simulation_upload(file: UploadFile = File(...), user: dict = Depends(current_user)):
+        """Upload a video, photo or recording for the simulation (streamed to disk, size-capped)."""
+        name = Path(file.filename or "").name
+        stem = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in Path(name).stem)[:80] or "media"
+        ext = Path(name).suffix.lower()
+        if ext not in SIM_VIDEO_EXTS + SIM_IMAGE_EXTS + SIM_AUDIO_EXTS:
+            raise HTTPException(415, "Unsupported file type (video, photo or audio expected)")
+        dest = sim_dir() / f"{stem}{ext}"
+        limit, size = settings.simulation.max_upload_mb * 1024 * 1024, 0
+        with dest.open("wb") as fh:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(413, f"File larger than {settings.simulation.max_upload_mb} MB")
+                fh.write(chunk)
+        audit("simulation_file_added", user, file=dest.name, size=size)
+        return {"name": dest.name, "kind": sim_kind(dest.name), "size": size}
+
+    @app.delete("/api/simulation/files/{name}")
+    def simulation_delete(name: str, user: dict = Depends(current_user)):
+        """Delete an uploaded simulation file."""
+        sim_file(name).unlink()
+        audit("simulation_file_deleted", user, file=name)
+        return {"ok": True}
+
+    @app.post("/api/simulation/camera")
+    def simulation_camera(body: SimCameraIn, user: dict = Depends(current_user)):
+        """Play an uploaded video or photo instead of the camera stream (``file`` null: back to RTSP)."""
+        path = None
+        if body.file:
+            p = sim_file(body.file)
+            if sim_kind(p.name) not in ("video", "image"):
+                raise HTTPException(422, "A video or a photo is expected")
+            path = str(p)
+        res = call_core("simulate_camera", path=path, actor=user["username"])
+        audit("simulation_camera", user, file=body.file)
+        return res
+
+    @app.post("/api/simulation/face")
+    def simulation_face(body: SimFaceIn, user: dict = Depends(current_user)):
+        """Simulate the recognition of a person: opens the recognition window (LED, voice) like a real one."""
+        if db.get_person(body.person_id) is None:
+            raise HTTPException(404, "Unknown person")
+        res = call_core("simulate_face", person_id=body.person_id, actor=user["username"])
+        audit("simulation_face", user, person_id=body.person_id)
+        return res
+
+    @app.post("/api/simulation/voice")
+    def simulation_voice(body: SimVoiceIn, user: dict = Depends(current_user)):
+        """Simulate a voice command (typed text through Piper + Vosk, or an uploaded recording).
+
+        A resulting garage pulse is only logged (``garage_pulse_simulated``) unless
+        ``simulation.drive_relay`` is on.
+        """
+        if not (body.text or body.file):
+            raise HTTPException(422, "text or file is required")
+        params = {"actor": user["username"]}
+        if body.file:
+            p = sim_file(body.file)
+            if sim_kind(p.name) != "audio" and not p.name.lower().endswith(".webm"):
+                raise HTTPException(422, "An audio recording is expected")
+            params["audio_path"] = str(p)
+        else:
+            params["text"] = body.text
+        res = call_core("simulate_voice", **params)
+        audit("simulation_voice", user, input=res.get("input"), transcript=res.get("transcript"),
+              intent=res.get("intent"), outcome=res.get("outcome"))
+        return res
 
     @app.get("/api/stream.mjpg")
     async def stream(request: Request, user: dict = Depends(current_user)):

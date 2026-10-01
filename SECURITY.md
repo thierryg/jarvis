@@ -7,8 +7,8 @@ voices). Security issues are handled with priority.
 
 | Version | Supported |
 |---|---|
-| 0.8.x | ✅ security fixes |
-| < 0.8 | ❌ upgrade to the latest release |
+| 0.9.x | ✅ security fixes |
+| < 0.9 | ❌ upgrade to the latest release |
 
 ## Reporting a vulnerability
 

@@ -30,6 +30,8 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from jarvis.config.settings import Settings  # noqa: E402
 from jarvis.storage.database import Database  # noqa: E402
+from jarvis.voice.commands import CommandParser  # noqa: E402
+from jarvis.voice.simulate import split_wake_token  # noqa: E402
 from jarvis.web import probe  # noqa: E402
 from jarvis.web.app import create_app  # noqa: E402
 
@@ -63,7 +65,31 @@ async def fake_probe(url, timeout_s=15.0):
 probe.probe = fake_probe
 db = Database(s.storage.db_path)
 db.init()
-core = type("Core", (), {"call": lambda self, cmd, **k: {"ok": True, "camera_connected": False}})()
+
+
+class FakeCore:
+    """Stands for the core control socket: status, and the simulation commands (no relay, no models)."""
+
+    def __init__(self):
+        self.playing = None
+
+    def call(self, cmd, **k):
+        if cmd == "simulate_camera":
+            self.playing = Path(k["path"]).name if k.get("path") else None
+            return {"ok": True, "camera_simulation": self.playing}
+        if cmd == "simulate_face":
+            return {"ok": True, "person": "Alice", "window_s": 30, "events": [{"type": "face_recognized"}], "said": ["Bonjour Alice"]}
+        if cmd == "simulate_voice":
+            wake, rest = split_wake_token(k.get("text", ""))
+            intent = CommandParser(s.commands).parse(rest) if wake else None
+            return {"ok": True, "input": "text", "wake_word": wake, "stt": "vosk on piper speech" if wake else "not run",
+                    "transcript": rest if wake else "", "intent": intent.value if intent else None,
+                    "outcome": "handled" if intent else "ignored",
+                    "events": [{"type": "garage_pulse_simulated"}] if intent else [], "said": []}
+        return {"ok": True, "camera_connected": False, "camera_simulation": self.playing}
+
+
+core = FakeCore()
 app = create_app(s, db, core)
 server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=8765, log_level="warning"))
 threading.Thread(target=server.run, daemon=True).start()
@@ -172,6 +198,56 @@ with sync_playwright() as p:
         page.click("#settings-save")
         page.wait_for_timeout(700)
         check("saving the stream URL asks for a core restart", page.is_visible("#restart-banner"))
+
+    # Settings tabs: one tab per domain, sub-tabs per group, unsaved dot, remembered tab.
+    check("seven domain tabs, Camera first", page.eval_on_selector_all("#settings-domains button", "b => b.length") == 7
+          and page.inner_text("#settings-domains button.active").strip().startswith("Camera"))
+    check("the Camera domain lists its groups as sub-tabs", page.eval_on_selector_all("#settings-nav button", "b => b.length") == 4)
+    if rtsp_input.count():
+        rtsp_input.fill("rtsp://10.0.0.10:554/live")
+        check("a domain with unsaved edits carries a dot", page.is_visible("#settings-domains button.active .dot"))
+        page.click("#settings-cancel")
+    page.click('#settings-domains button:has-text("Simulation")')
+    page.wait_for_selector("#sim-camera-card:not([hidden])")
+    check("the Simulation domain opens Camera simulation", page.inner_text("#settings-nav button.active").strip() == "Camera simulation"
+          and page.is_hidden("#camera-card"))
+
+    # Camera simulation: upload a clip, play it, stop.
+    clip = tmp / "clip.mp4"
+    clip.write_bytes(b"\x00" * 2048)
+    page.set_input_files("#sim-media-upload", str(clip))
+    page.wait_for_selector("#sim-media-list .sim-file.playing", timeout=8000)
+    check("an uploaded video is listed and played at once", "clip.mp4" in page.inner_text("#sim-camera-state")
+          and page.is_visible("#sim-camera-stop"))
+    page.screenshot(path=str(OUT / "10-settings-sim-camera.png"), full_page=True)
+    page.click("#sim-camera-stop")
+    page.wait_for_selector("#sim-camera-stop", state="hidden")
+    check("stopping returns to the live camera", page.is_hidden("#sim-camera-stop"))
+
+    # Voice simulation: typed command with and without the wake word, simulated face.
+    db.add_person("Alice", can_open_garage=True)
+    page.click('#settings-nav button:has-text("Voice simulation")')
+    page.wait_for_selector("#sim-voice-card:not([hidden])")
+    page.wait_for_selector("#sim-person option", state="attached")
+    page.click("#sim-face-btn")
+    page.wait_for_selector("#sim-voice-result .sim-steps")
+    check("a simulated face opens the recognition window", "Alice" in page.inner_text("#sim-voice-result"))
+    page.fill('#sim-voice-form input[name="text"]', "Jarvis, ouvre la porte du garage")
+    page.click('#sim-voice-form button[type="submit"]')
+    page.wait_for_function("document.querySelector('#sim-voice-result').innerText.includes('ouvre la porte')", timeout=8000)
+    res = page.inner_text("#sim-voice-result")
+    check("a typed command is recognized, the pulse is simulated", "Yes" in res and "simulated" in res.lower(), res)
+    page.screenshot(path=str(OUT / "11-settings-sim-voice.png"), full_page=True)
+    page.fill('#sim-voice-form input[name="text"]', "ouvre la porte du garage")
+    page.click('#sim-voice-form button[type="submit"]')
+    page.wait_for_function("document.querySelector('#sim-voice-result .sim-steps') && "
+                           "!document.querySelector('#sim-voice-result').innerText.includes('ouvre la porte')", timeout=8000)
+    res = page.inner_text("#sim-voice-result")
+    check("without the wake word nothing is recognized", "No" in res, res)
+    page.reload()
+    page.click('.nav-item[data-page="settings"]')
+    page.wait_for_selector("#sim-voice-card:not([hidden])", timeout=8000)
+    check("the last settings tab is remembered", page.inner_text("#settings-nav button.active").strip() == "Voice simulation")
 
     # Logs: search, highlight, level filter, live tail.
     page.click('.nav-item[data-page="logs"]')

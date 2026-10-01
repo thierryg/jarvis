@@ -259,6 +259,15 @@ CATALOG: tuple[Param, ...] = (
           "Shrinkage of the vehicle box over 2 s meaning \"leaving\" (0.85 = -15 %).", "float", 0.3, 0.98, 0.01),
     Param("plates.unknown_notify", "License plates", "Notify unknown plates",
           "Send a notification (webhook, MQTT) for unknown, disabled or expired plates.", "bool"),
+    # --- Simulation (test without a real camera or microphone)
+    Param("simulation.loop", "Camera simulation", "Loop the video",
+          "Restart the simulated video at its end (otherwise its last frame stays on screen).", "bool"),
+    Param("simulation.drive_relay", "Camera simulation", "Simulations drive the relay",
+          "DANGER: when on, a garage pulse decided during a simulation (simulated camera, face or voice) "
+          "really drives the relay. Off: the pulse is only logged as garage_pulse_simulated.", "bool"),
+    Param("simulation.require_window", "Voice simulation", "Apply the recognition window",
+          "Simulated voice commands obey the live rule: a person must have been recognized within the "
+          "recognition window (simulate one first). Off: test the voice chain alone.", "bool"),
     # --- Web UI
     Param("api.idle_timeout_minutes", "Web interface", "Automatic logout after inactivity",
           "A session with no user action during this delay is closed (automatic status refresh "
@@ -504,6 +513,19 @@ def check_rtsp_url(url: str) -> str:
     if m["port"] and not 1 <= int(m["port"]) <= 65535:
         raise ValueError("RTSP stream URL: invalid port")
     return url
+
+
+# Settings page tabs: each group (sub-tab) belongs to one domain (main tab), in this order.
+DOMAINS: dict[str, tuple[str, ...]] = {
+    "camera": ("Camera stream", "PTZ camera", "Person detection", "Performance"),
+    "recognition": ("Face recognition", "Unknown visitors", "Adaptive learning", "Search by face", "License plates"),
+    "access": ("Decision and access", "Voice"),
+    "recording": ("Video recording", "Time-lapse"),
+    "integrations": ("Smart home (MQTT)", "Notifications", "Monitoring (Grafana)"),
+    "system": ("Web interface", "Logging", "Data retention (GDPR)", "Secrets"),
+    "simulation": ("Camera simulation", "Voice simulation"),
+}
+GROUP_DOMAIN = {group: domain for domain, groups in DOMAINS.items() for group in groups}
 
 
 def validate_changes(base: Settings, changes: dict[str, Any]) -> dict[str, Any]:

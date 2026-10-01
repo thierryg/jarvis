@@ -145,6 +145,14 @@ plates:
   votes_required: 2
   vehicle_classes: [2, 3, 5, 7]   # COCO car, motorcycle, bus, truck
 
+# Simulation (Settings > Simulation): play a file instead of the camera, simulate a face or a
+# voice command. Files are uploaded to <data_dir>/simulation.
+simulation:
+  loop: true                 # restart a simulated video at its end
+  drive_relay: false         # DANGER: when true, pulses decided during a simulation drive the relay
+  require_window: true       # simulated voice commands need a recognition window, as live ones
+  max_upload_mb: 100         # nginx allows 100 MB on /api/simulation/files
+
 storage:
   data_dir: /var/lib/jarvis
   unknown_retention_days: 30

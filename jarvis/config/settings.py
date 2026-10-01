@@ -281,6 +281,11 @@ class StorageConfig(BaseModel):
         return Path(self.data_dir) / "sightings"
 
     @property
+    def simulation_dir(self) -> Path:
+        """Directory holding the uploaded simulation media (videos, photos, recordings)."""
+        return Path(self.data_dir) / "simulation"
+
+    @property
     def plates_dir(self) -> Path:
         """Directory holding the vehicle snapshots of the plate reads."""
         return Path(self.data_dir) / "plates"
@@ -316,6 +321,22 @@ class PlatesConfig(BaseModel):
     close_give_up_s: float = 300.0     # abandon a pending close if the scene never clears
     unknown_notify: bool = True
     save_images: bool = True
+
+
+class SimulationConfig(BaseModel):
+    """Test without a real camera or microphone (Settings > Simulation).
+
+    The camera simulation plays an uploaded video or photo instead of the RTSP stream (until it
+    is stopped or the core restarts); the voice simulation turns a typed command into speech
+    (Piper) and runs the real speech recognition on it, or uses an uploaded recording. Garage
+    pulses caused by a simulation are logged as ``garage_pulse_simulated`` and do NOT drive the
+    relay unless ``drive_relay`` is set.
+    """
+
+    loop: bool = True                  # restart the simulated video at its end
+    drive_relay: bool = False          # DANGER: let simulated events pulse the real relay
+    require_window: bool = True        # apply the recognition window rule to simulated voice commands
+    max_upload_mb: int = 100           # simulation videos / recordings (nginx allows the same)
 
 
 class ApiConfig(BaseModel):
@@ -497,6 +518,7 @@ class Settings(BaseModel):
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     mqtt: MqttConfig = Field(default_factory=MqttConfig)
     plates: PlatesConfig = Field(default_factory=PlatesConfig)
+    simulation: SimulationConfig = Field(default_factory=SimulationConfig)
     timelapse: TimelapseConfig = Field(default_factory=TimelapseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)

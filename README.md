@@ -20,6 +20,9 @@ A 100 % on-premises system running on a Linux mini-PC:
   approaching vehicle opens the garage, and the garage can optionally close once the vehicle has left;
 - a USB relay drives the Novoferm Novomatic 200 garage door, only after an authorized person (or a registered
   plate) has been recognized; every decision is traced in the event log.
+- a web interface with tabbed settings and a **simulation** mode: play a video or photo instead of the
+  camera, simulate a recognition and type or upload a voice command, without a camera or microphone (a
+  pulse decided during a simulation is only logged, the relay is not driven).
 
 Nothing is sent to the cloud.
 
