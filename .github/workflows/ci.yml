@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - name: ruff
         run: uvx ruff check jarvis tests scripts docs/diagrams/src
       - name: shellcheck
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - name: bandit
         run: uvx --from "bandit[toml]" bandit -c pyproject.toml -q -r jarvis scripts
 
@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - name: system packages
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: tests with coverage
@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - name: pip-audit (known vulnerabilities in the dependencies)
         run: uvx pip-audit -r requirements-dev.txt --progress-spinner off
       - name: CycloneDX SBOM of the dependency set
