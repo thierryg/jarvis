@@ -42,7 +42,7 @@ paho-mqtt>=2.0               # (2.1.0) MQTT bridge (smart-home integration)
 ultralytics>=8.3,<9          # (8.4.165) YOLO11n + ByteTrack
 openvino>=2024.4             # (2026.4.0)
 cython                       # needed to build insightface
-insightface==0.7.3           # SCRFD + ArcFace
+insightface==2.0           # SCRFD + ArcFace
 onnxruntime>=1.17            # (1.30.0)
 onvif-zeep-async>=3.1        # (4.3.0) PTZ
 fast-alpr>=0.4               # (0.4.0) license plates: YOLOv9 plate detector + international OCR (MIT)
