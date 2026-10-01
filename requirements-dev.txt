@@ -22,4 +22,4 @@ psutil>=5.9                  # (7.x) resource metrics and hardware detection
 paho-mqtt>=2.0               # (2.1.0) MQTT bridge (smart-home integration)
 pytest>=8                    # (9.1.1)
 httpx>=0.27                  # (0.28.1)
-amqtt>=0.11                  # embedded MQTT broker for the integration tests
+amqtt>=0.12.1                  # embedded MQTT broker for the integration tests
