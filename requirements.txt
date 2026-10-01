@@ -14,7 +14,7 @@
 # Installation (in a Python 3.11 venv): two steps, because insightface 0.7.3 is built from
 # source and needs numpy and cython already installed (no build isolation).
 #
-#   pip install "numpy>=1.26,<2" cython
+#   pip install "numpy>=1.26,<3" cython
 #   pip install --no-build-isolation -r requirements.txt
 #
 # With uv: replace "pip install" with "uv pip install".
@@ -28,7 +28,7 @@ torchvision                  # (0.29.0+cpu)
 # --- Common: web API, configuration, storage --------------------------------------------
 pydantic>=2.6                # (2.13.5)
 pyyaml>=6.0                  # (6.0.3)
-numpy>=1.26,<2               # (1.26.4) insightface / onnxruntime not ready for numpy 2 yet
+numpy>=1.26,<3               # (1.26.4) insightface / onnxruntime not ready for numpy 2 yet
 pillow>=10                   # (12.3.0)
 fastapi>=0.110               # (0.141.1)
 uvicorn[standard]>=0.29      # (0.54.0)
