@@ -1,0 +1,12 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : .shellcheckrc
+# Purpose : ShellCheck settings: follow the sourced shared library (scripts/lib/jarvis-common.sh)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Resolve "source" paths relative to the script being checked, and follow them.
+source-path=SCRIPTDIR
+external-sources=true

@@ -1,0 +1,14 @@
+{
+  "name": "Jarvis · Identity & Access",
+  "short_name": "Jarvis",
+  "description": "Local face and voice identification gatekeeper",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070d18",
+  "theme_color": "#1f6feb",
+  "icons": [
+    {"src": "img/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "img/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "img/favicon.svg", "sizes": "any", "type": "image/svg+xml"}
+  ]
+}

@@ -1,0 +1,88 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/anubis/tasks/main.yml
+# Purpose : Anubis anti-bot proxy (official .deb, checksum pinned), instance jarvis
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+- name: Download Anubis {{ jarvis_anubis_version }}
+  ansible.builtin.get_url:
+    url: "https://github.com/TecharoHQ/anubis/releases/download/v{{ jarvis_anubis_version }}/anubis_{{ jarvis_anubis_version }}_amd64.deb"
+    checksum: "sha256:{{ jarvis_anubis_sha256 }}"
+    dest: "/var/cache/jarvis/anubis_{{ jarvis_anubis_version }}_amd64.deb"
+    mode: "0644"
+
+- name: Install Anubis
+  ansible.builtin.apt:
+    deb: "/var/cache/jarvis/anubis_{{ jarvis_anubis_version }}_amd64.deb"
+
+- name: Create /etc/anubis
+  ansible.builtin.file:
+    path: /etc/anubis
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the bot policy (read by the dynamic service user)
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/deploy/anubis/jarvis.botPolicies.yaml"
+    dest: /etc/anubis/jarvis.botPolicies.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart anubis
+
+# Rendered in one task from the repository file (a copy followed by line edits would change
+# on every run): only DIFFICULTY and REDIRECT_DOMAINS are host-specific.
+- name: Install the instance environment
+  ansible.builtin.copy:
+    content: >-
+      {{ lookup('ansible.builtin.file', jarvis_repo_root ~ '/deploy/anubis/jarvis.env')
+         | regex_replace('(?m)^DIFFICULTY=.*$', 'DIFFICULTY=' ~ jarvis_anubis_difficulty)
+         | regex_replace('(?m)^REDIRECT_DOMAINS=.*$', 'REDIRECT_DOMAINS=' ~ anubis_redirect_domains) }}
+    dest: /etc/anubis/jarvis.env
+    owner: root
+    group: root
+    mode: "0640"
+  vars:
+    anubis_redirect_domains: "{{ (([jarvis_le_domain] if jarvis_tls_mode == 'letsencrypt' else jarvis_tls_names) | unique) | join(',') }}"
+  notify: Restart anubis
+
+# Stable signing key: the challenge cookies survive restarts. Never leaves this host.
+- name: Generate the signing key (once)
+  ansible.builtin.shell: umask 077 && openssl rand -hex 32 > /etc/anubis/jarvis.key
+  args:
+    creates: /etc/anubis/jarvis.key
+  notify: Restart anubis
+
+- name: Protect the signing key
+  ansible.builtin.file:
+    path: /etc/anubis/jarvis.key
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Create the drop-in directory of anubis@jarvis
+  ansible.builtin.file:
+    path: /etc/systemd/system/anubis@jarvis.service.d
+    state: directory
+    mode: "0755"
+
+- name: Install the hardening and credential drop-in
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/deploy/anubis/anubis@jarvis.service.d/10-jarvis.conf"
+    dest: /etc/systemd/system/anubis@jarvis.service.d/10-jarvis.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart anubis
+
+- name: Enable and start anubis@jarvis
+  ansible.builtin.systemd_service:
+    name: anubis@jarvis.service
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,0 +1,64 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : requirements.txt
+# Purpose : Full pinned-range Python dependencies (core + api services)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Complete Python dependencies for Jarvis (core + api services), Python 3.11.
+# Same constraints as pyproject.toml [project.dependencies] + the "core" extra.
+# Versions in parentheses: the ones tested on 2026-09-29.
+#
+# Installation (in a Python 3.11 venv): two steps, because insightface 0.7.3 is built from
+# source and needs numpy and cython already installed (no build isolation).
+#
+#   pip install "numpy>=1.26,<2" cython
+#   pip install --no-build-isolation -r requirements.txt
+#
+# With uv: replace "pip install" with "uv pip install".
+# Required system packages: ffmpeg libportaudio2 libgl1 libglib2.0-0 libgomp1 build-essential.
+
+# CPU-only PyTorch (pulled in by ultralytics). Without this index, pip installs the CUDA build (~2.5 GB).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch                        # (2.14.0+cpu)
+torchvision                  # (0.29.0+cpu)
+
+# --- Common: web API, configuration, storage --------------------------------------------
+pydantic>=2.6                # (2.13.5)
+pyyaml>=6.0                  # (6.0.3)
+numpy>=1.26,<2               # (1.26.4) insightface / onnxruntime not ready for numpy 2 yet
+pillow>=10                   # (12.3.0)
+fastapi>=0.110               # (0.141.1)
+uvicorn[standard]>=0.29      # (0.54.0)
+python-multipart>=0.0.9      # (0.0.32)
+argon2-cffi>=23.1            # (25.1.0)
+cmd2>=4.2                    # (4.2.4) "jarvis" admin shell
+psutil>=5.9                  # (7.x) resource metrics and hardware detection
+paho-mqtt>=2.0               # (2.1.0) MQTT bridge (smart-home integration)
+
+# --- Core: vision ------------------------------------------------------------------------
+ultralytics>=8.3,<9          # (8.4.165) YOLO11n + ByteTrack
+openvino>=2024.4             # (2026.4.0)
+cython                       # needed to build insightface
+insightface==0.7.3           # SCRFD + ArcFace
+onnxruntime>=1.17            # (1.30.0)
+onvif-zeep-async>=3.1        # (4.3.0) PTZ
+fast-alpr>=0.4               # (0.4.0) license plates: YOLOv9 plate detector + international OCR (MIT)
+
+# --- Core: audio and voice ---------------------------------------------------------------
+sounddevice>=0.4.6           # (0.5.6)
+vosk>=0.3.45                 # (0.3.45)
+openwakeword>=0.6            # (0.6.0)
+piper-tts>=1.2               # (1.8.0)
+
+# --- Core: hardware (relays, door sensor) -----------------------------------------------
+pyserial>=3.5                # (3.5)
+hidapi>=0.14                 # (0.15.0)
+
+# --- Optional: uncomment according to config.yaml ---------------------------------------
+# speechbrain>=1.0           # speaker.enabled: true (speaker verification)
+# torchaudio                 #   same
+# pvporcupine>=3.0           # wakeword.engine: porcupine
+# gpiod>=2.1                 # gpiod backend (Raspberry Pi, FT232H, MCP2221, ...)

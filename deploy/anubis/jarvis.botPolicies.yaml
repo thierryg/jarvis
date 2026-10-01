@@ -1,0 +1,51 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/anubis/jarvis.botPolicies.yaml
+# Purpose : Anubis bot policy: no search engine, no AI crawler/agent, proof-of-work for browsers
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Installed as /etc/anubis/jarvis.botPolicies.yaml (Anubis >= 1.27). Rules are evaluated in order; the
+# first match wins. Jarvis is a private console: unlike the upstream default policy, search engines are
+# DENIED (not allowed) and every AI crawler or AI agent is blocked.
+bots:
+  # Known-malicious and pathological clients.
+  - import: (data)/bots/_deny-pathological.yaml
+  - import: (data)/bots/aggressive-brazilian-scrapers.yaml
+  # AI/LLM crawlers and AI agents (GPTBot, ClaudeBot, CCBot, PerplexityBot, Bytespider...): deny.
+  - import: (data)/meta/ai-block-aggressive.yaml
+  - import: (data)/clients/x-firefox-ai.yaml
+  # Headless browsers used for scraping.
+  - import: (data)/bots/headless-browsers.yaml
+
+  # Search engines, SEO crawlers and link-preview bots: deny (no indexing, no cache, no preview).
+  - name: deny-search-engines-and-crawlers
+    action: DENY
+    user_agent_regex: (?i)(googlebot|google-inspectiontool|storebot-google|bingbot|bingpreview|msnbot|adidxbot|duckduckbot|baiduspider|yandex|applebot|qwantify|qwantbot|slurp|ia_archiver|archive\.org_bot|mojeek|kagibot|seznambot|petalbot|sogou|exabot|ahrefsbot|semrushbot|mj12bot|dotbot|rogerbot|facebookexternalhit|twitterbot|linkedinbot|slackbot|discordbot|telegrambot|whatsapp|embedly|bot\b|crawler|spider)
+
+  # robots.txt, favicon and /.well-known stay reachable (served by nginx anyway).
+  - import: (data)/common/keep-internet-working.yaml
+
+  # Prometheus scraping: authenticated by a bearer token in the API, no JavaScript possible.
+  - name: allow-prometheus-metrics
+    action: ALLOW
+    path_regex: ^/metrics$
+
+  # Every browser-like client solves the proof-of-work challenge once (cookie), then reaches Jarvis.
+  - name: challenge-browsers
+    action: CHALLENGE
+    user_agent_regex: (?i)(mozilla|opera|webkit|gecko)
+
+  # Anything else (curl, scripts, Home Assistant REST, monitoring probes) is passed through: the API still
+  # requires a session or a token, login attempts are rate-limited by nginx and banned by fail2ban.
+  # (Without this rule Anubis would challenge unmatched clients, which cannot run JavaScript.)
+  - name: allow-non-browser-clients
+    action: ALLOW
+    path_regex: .*
+
+# Refusals are explicit HTTP 403 (upstream default: 200 with an error page).
+status_codes:
+  CHALLENGE: 200
+  DENY: 403

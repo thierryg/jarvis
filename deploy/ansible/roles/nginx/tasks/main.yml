@@ -1,0 +1,77 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/nginx/tasks/main.yml
+# Purpose : nginx TLS reverse proxy: site, host snippets, ACME webroot, logs
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+
+- name: Remove the distribution default site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Create the ACME webroot (HTTP-01 challenge)
+  ansible.builtin.file:
+    path: /var/www/letsencrypt
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create the Jarvis log files (watched by fail2ban from the start)
+  ansible.builtin.file:
+    path: "/var/log/nginx/{{ item }}"
+    state: touch
+    owner: www-data
+    group: adm
+    mode: "0640"
+    modification_time: preserve
+    access_time: preserve
+  loop: [jarvis.access.log, jarvis.error.log]
+
+- name: Install the host snippets (upstream and server names)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/nginx/snippets/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [jarvis-upstream.conf, jarvis-server-name.conf]
+  notify: Reload nginx
+
+- name: Install the Jarvis site
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/deploy/nginx/jarvis.conf"
+    dest: /etc/nginx/sites-available/jarvis.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Enable the Jarvis site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/jarvis.conf
+    dest: /etc/nginx/sites-enabled/jarvis.conf
+    state: link
+  notify: Reload nginx
+
+- name: Validate the nginx configuration
+  ansible.builtin.command: nginx -t -q
+  changed_when: false
+
+- name: Enable and start nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Apply the nginx changes now (fail2ban and postflight need the final site)
+  ansible.builtin.meta: flush_handlers

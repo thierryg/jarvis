@@ -1,0 +1,14 @@
+{# ============================================================================
+   Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+   ----------------------------------------------------------------------------
+   File    : deploy/ansible/roles/hardening/templates/20auto-upgrades.j2
+   Purpose : Enable the periodic APT update and upgrade
+   Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+   Project : jarvis-home (version: jarvis/VERSION)
+   Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+   ============================================================================ #}
+// {{ ansible_managed }} - /etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";

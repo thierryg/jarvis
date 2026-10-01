@@ -1,0 +1,27 @@
+<!-- =============================================================================
+     Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+     -----------------------------------------------------------------------------
+     File    : jarvis/web/static/img/login-bg.svg
+     Purpose : Background of the login hero panel (gradients and circuit grid)
+     Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+     Project : jarvis-home (version: jarvis/VERSION)
+     Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+     ============================================================================= -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="a" cx="20%" cy="12%" r="70%"><stop offset="0" stop-color="#16325c"/><stop offset="1" stop-color="#16325c" stop-opacity="0"/></radialGradient>
+    <radialGradient id="b" cx="92%" cy="92%" r="60%"><stop offset="0" stop-color="#0b3b4a"/><stop offset="1" stop-color="#0b3b4a" stop-opacity="0"/></radialGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#1e3a5f" stroke-width="1" stroke-opacity=".35"/>
+      <circle cx="0" cy="0" r="1.6" fill="#38bdf8" fill-opacity=".25"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="900" fill="#070d18"/>
+  <rect width="1200" height="900" fill="url(#grid)"/>
+  <rect width="1200" height="900" fill="url(#a)"/>
+  <rect width="1200" height="900" fill="url(#b)"/>
+  <g fill="none" stroke="#38bdf8" stroke-opacity=".18" stroke-width="1.4">
+    <path d="M0 640 C200 560 380 700 600 620 S980 520 1200 600"/>
+    <path d="M0 700 C220 620 400 760 620 680 S1000 580 1200 660"/>
+  </g>
+</svg>

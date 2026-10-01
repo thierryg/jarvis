@@ -1,0 +1,18 @@
+{# ============================================================================
+   Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+   ----------------------------------------------------------------------------
+   File    : deploy/ansible/roles/fail2ban/templates/jarvis-login.conf.j2
+   Purpose : fail2ban filter: failed or throttled logins on the Jarvis web UI
+   Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+   Project : jarvis-home (version: jarvis/VERSION)
+   Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+   ============================================================================ #}
+# {{ ansible_managed }} - /etc/fail2ban/filter.d/jarvis-login.conf
+# Matches nginx "combined" lines of POST /api/login answered 401 (bad credentials) or
+# 429 (rate limit hit), e.g.:
+#   192.0.2.10 - - [30/Sep/2026:11:00:00 +0200] "POST /api/login HTTP/2.0" 401 43 "-" "Mozilla/5.0"
+# Test: fail2ban-regex /var/log/nginx/jarvis.access.log /etc/fail2ban/filter.d/jarvis-login.conf
+[Definition]
+# fail2ban removes the matched timestamp before applying the regex: the brackets may be empty.
+failregex = ^<HOST> - \S+ \[[^\]]*\] "POST /api/login(?:\?\S*)? HTTP/[0-9.]+" (?:401|429) 
+ignoreregex =

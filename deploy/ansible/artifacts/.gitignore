@@ -1,0 +1,3 @@
+# Fetched per host by the tls role (local CA certificate to import on client devices).
+*
+!.gitignore

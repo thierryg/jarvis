@@ -1,0 +1,194 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/hardening/tasks/main.yml
+# Purpose : Linux hardening: kernel, modules, core dumps, journald, auditd, AppArmor, updates, sudo
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Baseline inspired by the CIS Ubuntu Linux benchmark and the ANSSI BP-028 guide,
+# adapted to an appliance (camera + relay on USB, no desktop, no interactive users).
+
+- name: Create the drop-in directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/systemd/coredump.conf.d
+    - /etc/systemd/journald.conf.d
+    - /etc/security/pwquality.conf.d
+    - /etc/security/limits.d
+
+# --- kernel ------------------------------------------------------------------------------
+- name: Install the kernel hardening parameters
+  ansible.builtin.template:
+    src: 60-jarvis-hardening.conf.j2
+    dest: /etc/sysctl.d/60-jarvis-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl
+  when: jarvis_harden_kernel | bool and not jarvis_in_container
+
+- name: Forbid rare filesystems and network protocols
+  ansible.builtin.template:
+    src: jarvis-blacklist.conf.j2
+    dest: /etc/modprobe.d/jarvis-blacklist.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Disable core dumps (they could contain face embeddings or secrets)
+  ansible.builtin.copy:
+    dest: "{{ item.dest }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - dest: /etc/security/limits.d/10-jarvis-nocore.conf
+      content: "# Managed by Ansible (jarvis hardening): no core dumps.\n* hard core 0\n"
+    - dest: /etc/systemd/coredump.conf.d/10-jarvis.conf
+      content: "# Managed by Ansible (jarvis hardening): no core dumps.\n[Coredump]\nStorage=none\nProcessSizeMax=0\n"
+  loop_control:
+    label: "{{ item.dest }}"
+
+# --- logs ----------------------------------------------------------------------------------
+- name: Keep a persistent, bounded journal
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/10-jarvis.conf
+    content: |
+      # Managed by Ansible (jarvis hardening): persistent journal, 500 MB maximum.
+      [Journal]
+      Storage=persistent
+      Compress=yes
+      SystemMaxUse=500M
+      MaxRetentionSec=3month
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+
+- name: Install auditd
+  ansible.builtin.apt:
+    name: [auditd, audispd-plugins]
+    state: present
+  when: jarvis_auditd | bool
+
+- name: Install the Jarvis audit rules
+  ansible.builtin.template:
+    src: 50-jarvis.rules.j2
+    dest: /etc/audit/rules.d/50-jarvis.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Load audit rules
+  when: jarvis_auditd | bool
+
+- name: Enable auditd
+  ansible.builtin.systemd_service:
+    name: auditd
+    enabled: true
+    state: started
+  when: jarvis_auditd | bool and not jarvis_in_container
+
+# --- mandatory access control ----------------------------------------------------------------
+- name: Install AppArmor tools
+  ansible.builtin.apt:
+    name: [apparmor, apparmor-utils]
+    state: present
+  when: jarvis_apparmor | bool
+
+- name: Enable AppArmor
+  ansible.builtin.systemd_service:
+    name: apparmor
+    enabled: true
+    state: started
+  when: jarvis_apparmor | bool and not jarvis_in_container
+
+# --- updates ---------------------------------------------------------------------------------
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name: [unattended-upgrades, apt-listchanges]
+    state: present
+  when: jarvis_unattended_upgrades | bool
+
+- name: Configure the automatic security updates
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/apt/apt.conf.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [20auto-upgrades, 52jarvis-unattended-upgrades]
+  when: jarvis_unattended_upgrades | bool
+
+# --- accounts and privileges -------------------------------------------------------------------
+- name: Harden sudo (pty, log file, short credential cache)
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/10-jarvis-hardening
+    content: |
+      # Managed by Ansible (jarvis hardening).
+      Defaults use_pty
+      Defaults logfile="/var/log/sudo.log"
+      Defaults timestamp_timeout=5
+      Defaults passwd_tries=3
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Install the password quality module
+  ansible.builtin.apt:
+    name: libpam-pwquality
+    state: present
+
+- name: Require strong local passwords (12 characters, 3 classes)
+  ansible.builtin.copy:
+    dest: /etc/security/pwquality.conf.d/10-jarvis.conf
+    content: |
+      # Managed by Ansible (jarvis hardening).
+      minlen = 12
+      minclass = 3
+      maxrepeat = 3
+      dictcheck = 1
+      enforce_for_root
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Use a restrictive default umask for new files
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^UMASK\s'
+    line: "UMASK\t\t027"
+
+- name: Restrict the cron configuration to root
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: "{{ item.mode }}"
+    owner: root
+    group: root
+  loop:
+    - { path: /etc/crontab, mode: "0600" }
+    - { path: /etc/cron.d, mode: "0700" }
+    - { path: /etc/cron.daily, mode: "0700" }
+    - { path: /etc/cron.hourly, mode: "0700" }
+    - { path: /etc/cron.weekly, mode: "0700" }
+    - { path: /etc/cron.monthly, mode: "0700" }
+  failed_when: false
+
+- name: Ignore Ctrl+Alt+Del on the console (no reboot by keyboard)
+  ansible.builtin.systemd_service:
+    name: ctrl-alt-del.target
+    masked: true
+
+- name: Remove clear-text network clients
+  ansible.builtin.apt:
+    name: "{{ jarvis_removed_packages }}"
+    state: absent
+    purge: true

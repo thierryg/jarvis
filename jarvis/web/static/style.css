@@ -1,0 +1,519 @@
+/* =============================================================================
+ * Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+ * -----------------------------------------------------------------------------
+ * File    : jarvis/web/static/style.css
+ * Purpose : Design system of the web console (tokens, layout, components)
+ * Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+ * Project : jarvis-home (version: jarvis/VERSION)
+ * Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+ * =============================================================================
+ * No external assets (the CSP only allows 'self'): system font stack with CJK and Thai fallbacks,
+ * inline SVG icons. Light and dark themes follow the OS preference.
+ *
+ * Organization
+ *  1. Design tokens (:root custom properties) and their dark-theme overrides.
+ *  2. Base elements and resets.
+ *  3. Controls (buttons, inputs, switch), login screen, app shell, components,
+ *     responsive breakpoints, CSP utilities, recordings/time-lapse.
+ * Conventions
+ *  - Components only use the tokens below, so the dark theme is a pure token swap.
+ *  - Semantic variants use modifier classes shared across components: .ok (success,
+ *    green), .bad (error/threat, red), .warn (attention, orange), .info (accent, blue).
+ *  - The CSP (default-src 'self') forbids style="" attributes: every one-off layout need is a
+ *    small utility class (see "utilities"), and dynamic sizes (chart bars) are set by app.js
+ *    through the CSSOM (element.style), which the CSP allows.
+ */
+
+/* ---------------------------------------------------------------- design tokens (light theme)
+ * Surfaces:  --bg page background, --bg-2 secondary background, --surface cards/panels,
+ *            --surface-2 subtle fill (table header, hover, KPI tiles), --border hairlines.
+ * Text:      --text primary, --text-2 secondary (labels, nav), --muted hints and captions.
+ * Accent:    --accent primary action/selection, --accent-2 secondary accent, --accent-soft
+ *            tinted background (active nav item, focus ring, dirty setting row).
+ * Status:    --ok / --warn / --danger with their -soft backgrounds for badges, chips, banners.
+ * Shape:     --radius cards/dialogs, --radius-sm controls; --shadow cards, --shadow-lg
+ *            floating elements (menus, toasts, dialogs, save bar).
+ * Type:      --font system stack with explicit CJK and Thai fallbacks (zh-CN, ja-JP, ko-KR,
+ *            th-TH locales) since no web font can be loaded; --mono for keys, hashes, JSON.
+ * color-scheme tells the browser which native widgets/scrollbars to render.
+ */
+:root {
+  --bg: #f3f5f8;
+  --bg-2: #e9edf3;
+  --surface: #ffffff;
+  --surface-2: #f7f9fc;
+  --border: #dde3eb;
+  --text: #121826;
+  --text-2: #4a5568;
+  --muted: #7b8798;
+  --accent: #1f6feb;
+  --accent-2: #0ea5e9;
+  --accent-soft: #e7f0ff;
+  --ok: #16a34a;
+  --ok-soft: #e6f6ec;
+  --warn: #d97706;
+  --warn-soft: #fdf2e1;
+  --danger: #dc2626;
+  --danger-soft: #fdeaea;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 4px 16px rgba(16, 24, 40, .06);
+  --shadow-lg: 0 12px 40px rgba(16, 24, 40, .16);
+  --font: "Inter", "Segoe UI", system-ui, -apple-system, "Noto Sans", "Noto Sans CJK SC", "Noto Sans Thai",
+          "PingFang SC", "Hiragino Sans", "Malgun Gothic", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  color-scheme: light;
+}
+
+/* Dark theme: same token names, darker surfaces and brighter accents for contrast. Only the
+ * tokens change, so no component needs a dark-specific rule. --shadow-lg is kept as is. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1017;
+    --bg-2: #0f1620;
+    --surface: #121a25;
+    --surface-2: #17212e;
+    --border: #243142;
+    --text: #e6edf6;
+    --text-2: #b3c0d1;
+    --muted: #7d8ba0;
+    --accent: #4c8dff;
+    --accent-2: #38bdf8;
+    --accent-soft: #14233b;
+    --ok: #22c55e;
+    --ok-soft: #0f2a1a;
+    --warn: #f59e0b;
+    --warn-soft: #2b2110;
+    --danger: #f05252;
+    --danger-soft: #2d1416;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 16px rgba(0, 0, 0, .3);
+    color-scheme: dark;
+  }
+}
+
+/* ---------------------------------------------------------------- base */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; font: 14px/1.5 var(--font); background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+[hidden] { display: none !important; }   /* the `hidden` attribute must win over any component display rule (app.js toggles it) */
+a { color: var(--accent); text-decoration: none; }
+h1, h2, h3 { margin: 0; letter-spacing: -.01em; }
+h1 { font-size: 20px; font-weight: 650; }
+h2 { font-size: 15px; font-weight: 650; }
+h3 { font-size: 14px; font-weight: 600; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12px; }
+/* Sprite icons: stroke-based symbols colored by currentColor (they follow the text color). */
+.icon { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8;
+        stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------------------------------------------------------------- controls */
+/* Buttons: primary (accent) by default; modifiers .secondary (outlined), .ghost (transparent),
+ * .danger (red), .small (30px) and .icon-only (square). .btn gives links the button look
+ * (CSV/MP4 export links). */
+button, .btn {
+  font: inherit; font-weight: 550; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 36px; padding: 0 14px; border-radius: var(--radius-sm); border: 1px solid transparent;
+  background: var(--accent); color: #fff; cursor: pointer; transition: filter .15s, background .15s, border-color .15s;
+  white-space: nowrap; text-decoration: none;
+}
+button:hover, .btn:hover { filter: brightness(1.08); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.secondary, .btn.secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+button.secondary:hover, .btn.secondary:hover { background: var(--surface-2); filter: none; }
+button.ghost { background: transparent; color: var(--text-2); border-color: transparent; }
+button.ghost:hover { background: var(--surface-2); filter: none; }
+button.danger { background: var(--danger); }
+button.small, .btn.small { height: 30px; padding: 0 10px; font-size: 13px; }
+button.icon-only { width: 34px; padding: 0; }
+/* Form fields share the 36px control height of buttons so toolbars align. */
+input, select, textarea {
+  font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); height: 36px; padding: 0 10px; min-width: 0; outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+textarea { height: auto; padding: 8px 10px; resize: vertical; }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+/* label.field: caption stacked above its control; label.check: inline checkbox/switch + text. */
+label.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); font-weight: 500; }
+label.check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+/* Toggle switch (app.js toggle()): the real checkbox stays in the DOM for accessibility and
+ * form semantics but is visually hidden; the sibling span draws the track and ::before the knob. */
+.switch { position: relative; width: 38px; height: 22px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch span { position: absolute; inset: 0; background: var(--border); border-radius: 22px; transition: .2s; cursor: pointer; }
+.switch span::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px;
+                       background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::before { transform: translateX(16px); }
+
+/* ---------------------------------------------------------------- login */
+/* Split screen: hero (left, always dark regardless of the theme) and form panel (right). */
+.login { display: grid; grid-template-columns: 1.15fr 1fr; min-height: 100vh; }
+.login-hero {
+  position: relative; overflow: hidden; color: #e8f1ff; padding: 48px 56px; display: flex; flex-direction: column;
+  /* img/login-bg.svg (circuit grid) sits on top of the two glows; the solid color is the
+     fallback while the image loads. */
+  background: url("img/login-bg.svg") center / cover no-repeat,
+              radial-gradient(1200px 600px at 20% 10%, #16325c 0%, transparent 60%),
+              radial-gradient(900px 500px at 90% 90%, #0b3b4a 0%, transparent 60%), #070d18;
+}
+.login-hero .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .2em; font-size: 15px; }
+.login-hero .brand svg { width: 34px; height: 34px; }
+.login-hero .art { flex: 1; display: flex; align-items: center; justify-content: center; }
+.login-hero .art svg { width: min(520px, 90%); height: auto; }
+.login-hero .tagline h2 { font-size: 26px; font-weight: 650; color: #fff; letter-spacing: -.02em; }
+.login-hero .tagline p { color: #9fb3cf; max-width: 520px; margin: 10px 0 0; }
+.login-hero .pills { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.login-hero .pills span { border: 1px solid #2a4468; background: rgba(30, 64, 110, .35); color: #cfe0f7;
+                          padding: 5px 12px; border-radius: 99px; font-size: 12px; }
+.login-panel { display: flex; align-items: center; justify-content: center; padding: 40px; background: var(--surface); }
+.login-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px; }
+.login-card h1 { font-size: 24px; }
+.login-card .sub { color: var(--muted); margin: 6px 0 0; }
+.login-card button[type="submit"] { height: 42px; font-size: 15px; }
+.login-card .foot { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 12px; }
+.login-card .notice, .password-dialog .notice { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius-sm);
+                      padding: 10px 12px; font-size: 13px; margin: 0; }
+/* min-height reserves the line so the form does not jump when an error appears. */
+.error { color: var(--danger); font-size: 13px; min-height: 18px; }
+
+/* animated identification art (login hero SVG): scan line sweep, blinking mesh dots,
+ * voice waveform bars and a slowly rotating dashed ring. */
+.scan-line { animation: scan 3.2s ease-in-out infinite; }
+@keyframes scan { 0%, 100% { transform: translateY(0); opacity: .0; } 10% { opacity: .9; } 50% { transform: translateY(250px); opacity: .9; } 60% { opacity: 0; } }
+.mesh-dot { animation: blink 2.4s ease-in-out infinite; }
+@keyframes blink { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+/* transform-box: fill-box makes transform-origin relative to each bar's own box; by default SVG
+ * transforms are relative to the SVG viewport origin, so scaleY would squash the bars toward
+ * the top of the drawing instead of around their own center. */
+.wave rect { transform-box: fill-box; transform-origin: center; animation: wave 1.2s ease-in-out infinite; }
+@keyframes wave { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+/* The ring is a <g>: its origin is set explicitly to the circle center (260,200 in viewBox units). */
+.ring { animation: spin 18s linear infinite; transform-origin: 260px 200px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Accessibility: no decorative animation when the user asks for reduced motion. */
+@media (prefers-reduced-motion: reduce) { .scan-line, .mesh-dot, .wave rect, .ring { animation: none; } }
+
+/* ---------------------------------------------------------------- app shell */
+/* Shell: 240px sidebar + main column. The sidebar is sticky and full height so the
+ * navigation stays visible while the page scrolls; the top bar is sticky too (z-index above
+ * page content). */
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column;
+           padding: 18px 12px; gap: 4px; position: sticky; top: 0; height: 100vh; }
+.sidebar .brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; font-weight: 700; letter-spacing: .16em; }
+.sidebar .brand svg { width: 28px; height: 28px; }
+.sidebar .brand small { display: block; font-weight: 500; letter-spacing: 0; color: var(--muted); font-size: 11px; }
+.nav-item { display: flex; align-items: center; gap: 12px; height: 38px; padding: 0 12px; border-radius: var(--radius-sm);
+            color: var(--text-2); cursor: pointer; font-weight: 550; border: 0; background: transparent; width: 100%;
+            justify-content: flex-start; }
+.nav-item:hover { background: var(--surface-2); color: var(--text); filter: none; }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); }
+.sidebar .spacer { flex: 1; }
+.sidebar .version { color: var(--muted); font-size: 11px; padding: 0 12px; }
+.main { display: flex; flex-direction: column; min-width: 0; }
+.topbar { height: 60px; display: flex; align-items: center; gap: 14px; padding: 0 24px; background: var(--surface);
+          border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+.topbar h1 { flex: 1; font-size: 17px; }
+/* Status chips of the top bar: a colored dot (::before) + label; .ok / .bad set by app.js, .plain has no dot. */
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 99px;
+        font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.chip.ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.chip.ok::before { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.chip.bad { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
+.chip.bad::before { background: var(--danger); }
+.chip.plain::before { display: none; }
+/* User menu dropdown, absolutely positioned under its button. */
+.user-menu { position: relative; }
+.user-menu .menu { position: absolute; right: 0; top: 44px; background: var(--surface); border: 1px solid var(--border);
+                   border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 12px; width: 260px;
+                   display: flex; flex-direction: column; gap: 10px; }
+/* Page container: centered, capped at 1480px, vertical rhythm through flex gap. */
+.content { padding: 24px; max-width: 1480px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+
+/* ---------------------------------------------------------------- components */
+/* Cards: .card-h header (title + actions), .card-b body (.flush = no padding, for tables and
+ * settings lists). Toolbars wrap and align controls on their bottom edge (labels vary in height). */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px;
+          border-bottom: 1px solid var(--border); }
+.card-b { padding: 18px; }
+.card-b.flush { padding: 0; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.toolbar .grow { flex: 1; }
+/* Responsive card grids: as many columns as fit (300px min; .tight 190px for thumbnails). */
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.grid.tight { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+/* Live page KPI tiles and layout (stream + 360px side column). */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.kpi { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.kpi .label { color: var(--muted); font-size: 12px; font-weight: 500; }
+.kpi .value { font-size: 20px; font-weight: 650; margin-top: 2px; }
+.kpi .value.ok { color: var(--ok); } .kpi .value.bad { color: var(--danger); }
+.live-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+/* Video frame for the MJPEG stream and the time-lapse image: fixed 16:9 box, letterboxed
+ * (object-fit: contain) so any camera aspect ratio fits; the LIVE badge overlays the corner. */
+.stream-wrap { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; aspect-ratio: 16/9; }
+.stream-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.stream-wrap .live-badge { position: absolute; top: 12px; left: 12px; background: rgba(220, 38, 38, .9); color: #fff;
+                           font-weight: 700; font-size: 11px; letter-spacing: .1em; padding: 3px 8px; border-radius: 4px; }
+.actions { display: flex; flex-direction: column; gap: 10px; }
+.actions .row { display: flex; gap: 8px; }
+.actions .row input { flex: 1; }
+
+/* Pills (app.js badge()): neutral by default, .ok / .bad / .warn / .info variants. */
+.badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 99px; font-size: 11.5px;
+         font-weight: 650; background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+.badge.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.badge.bad { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.badge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.badge.info { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+/* Data tables (sightings, events, audit, sessions); .table-wrap scrolls them horizontally on small screens. */
+table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase;
+                letter-spacing: .04em; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+table.data td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.data tr:last-child td { border-bottom: 0; }
+table.data tr:hover td { background: var(--surface-2); }
+.table-wrap { overflow-x: auto; }
+img.face { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; display: block; }
+/* Audit diff cell: field label, old value struck through in red, new value in green. */
+.diff { display: flex; flex-direction: column; gap: 3px; }
+.diff .d { font-family: var(--mono); font-size: 12px; }
+.diff .d b { font-family: var(--font); font-weight: 600; color: var(--text-2); margin-right: 4px; }
+.diff .from { color: var(--danger); text-decoration: line-through; opacity: .8; }
+.diff .to { color: var(--ok); }
+/* "Load older" pagination footer. */
+.pager { display: flex; justify-content: center; padding: 12px; }
+
+/* Person cards: .watch (watchlist) gets a red border; avatar is an image or initials; face
+ * thumbnails have a delete button (.x) in the corner and an AUTO tag for auto-enrolled faces. */
+.person-card .card-b { display: flex; flex-direction: column; gap: 12px; }
+.person-card.watch { border-color: var(--danger); }
+.person-head { display: flex; gap: 12px; align-items: center; }
+.avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: var(--accent-soft);
+          color: var(--accent); display: grid; place-items: center; font-weight: 700; flex: none; }
+.thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+.thumb { position: relative; }
+.thumb img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; display: block; }
+.thumb .x { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+            background: var(--danger); font-size: 12px; line-height: 1; }
+.thumb .tag { position: absolute; left: 3px; bottom: 3px; background: var(--accent); color: #fff; font-size: 9px;
+              font-weight: 700; border-radius: 3px; padding: 0 4px; }
+/* Access-rule editor: weekday checkboxes and a collapsible <details> panel without the native marker. */
+.days { display: flex; gap: 6px; }
+.days label { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); gap: 2px; }
+details.panel { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+details.panel summary { cursor: pointer; padding: 9px 12px; font-weight: 600; color: var(--text-2); list-style: none;
+                        display: flex; justify-content: space-between; }
+details.panel summary::-webkit-details-marker { display: none; }
+details.panel > div { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+/* Visitor / face-search result cards: square cover image. */
+.visitor img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm); display: block; }
+.visitor .card-b { display: flex; flex-direction: column; gap: 10px; }
+
+/* 14-day stacked bar chart. Each .bar is a column laid out bottom-up (column-reverse):
+ * .k (recognized) first, then .u (unknown) on top; their heights are percentages set by
+ * app.js via element.style. The top segment gets the rounded corners. The day number
+ * (small) sits in the reserved 20px bottom padding. */
+.bars { display: flex; align-items: flex-end; gap: 8px; height: 150px; padding-top: 8px; }
+.bar { flex: 1; height: 100%; display: flex; flex-direction: column-reverse; position: relative; padding-bottom: 20px; }
+.bar span { display: block; }
+.bar .k { background: var(--ok); border-radius: 4px 4px 0 0; }
+.bar .u { background: var(--danger); opacity: .8; }
+.bar .k + .u, .bar .u:only-of-type { border-radius: 4px 4px 0 0; }
+.bar small { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; color: var(--muted); font-size: 11px; }
+/* Chart legend swatches (colors from the .sw-ok / .sw-bad utilities). */
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+/* Face search drop zone; .over is added by app.js while a file is dragged over it. */
+.drop { border: 2px dashed var(--border); border-radius: var(--radius); padding: 18px; display: flex; gap: 14px;
+        align-items: center; background: var(--surface-2); }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+
+/* Underlined tabs (Recordings, Audit); .active set by app.js. */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
+.tab-btn { background: transparent; color: var(--text-2); border-radius: 0; border: 0; border-bottom: 2px solid transparent; height: 40px; }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn:hover { filter: none; color: var(--text); }
+
+/* Settings: 240px group navigation (sticky below the 60px top bar, hence top: 84px) and the
+ * parameter list. Each .param row is a two-column grid: text (.t title + badges, .h help,
+ * .k key and YAML default) and a 280px control column (.ctl). .dirty highlights unsaved rows. */
+.settings { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 18px; align-items: start; }
+.settings nav { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 2px; }
+.settings nav button { justify-content: flex-start; background: transparent; color: var(--text-2); height: 34px; font-weight: 550; }
+.settings nav button.active { background: var(--accent-soft); color: var(--accent); }
+.settings nav button:hover { filter: none; background: var(--surface-2); }
+.param { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.param:last-child { border-bottom: 0; }
+.param .t { font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.param .h { color: var(--muted); font-size: 13px; margin-top: 3px; }
+.param .k { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; }
+.param .ctl { display: flex; flex-direction: column; gap: 6px; align-items: stretch; justify-content: center; }
+.param .ctl .inline { display: flex; gap: 8px; align-items: center; }
+.param .ctl .inline input { flex: 1; }
+.param.dirty { background: var(--accent-soft); }
+/* Save bar: position: sticky with bottom: 16px keeps it pinned to the bottom of the viewport
+ * while the settings list scrolls, yet it stays in the flow at the end of the list (it never
+ * covers the last row once scrolled to the end). Shown only while edits are pending. */
+.savebar { position: sticky; bottom: 16px; display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+           background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.savebar .grow { flex: 1; font-weight: 600; }
+/* Full-width banners: restart needed (.warn), audit chain verification (.ok / .bad). */
+.banner { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-radius: var(--radius); font-weight: 550; }
+.banner.warn { background: var(--warn-soft); color: var(--warn); }
+.banner.ok { background: var(--ok-soft); color: var(--ok); }
+.banner.bad { background: var(--danger-soft); color: var(--danger); }
+.banner .grow { flex: 1; }
+/* Monospace box for the metrics token; break-all wraps the long unbroken token. */
+.secret { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--border);
+          border-radius: var(--radius-sm); padding: 8px 10px; word-break: break-all; }
+
+/* Toasts (bottom-right stack) and modal dialogs (native <dialog> with a blurred backdrop). */
+.toast-host { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
+.toast { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--ok); border-radius: var(--radius-sm);
+         box-shadow: var(--shadow-lg); padding: 12px 16px; min-width: 260px; max-width: 420px; animation: pop .2s ease-out; }
+.toast.error { border-left-color: var(--danger); }
+@keyframes pop { from { transform: translateY(8px); opacity: 0; } }
+dialog { border: 0; border-radius: var(--radius); background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg);
+         padding: 24px; max-width: 460px; }
+dialog::backdrop { background: rgba(8, 12, 20, .55); backdrop-filter: blur(2px); }
+/* Blinking red dot of the voice recording dialog (reuses the blink keyframes). */
+.rec-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--danger); display: inline-block; animation: blink 1s infinite; }
+/* Placeholder text for empty lists and tables. */
+.empty { text-align: center; color: var(--muted); padding: 36px; }
+
+/* ---------------------------------------------------------------- responsive breakpoints
+ * <= 1100px (tablet / small laptop): single-column Live and Settings layouts, the settings
+ *   navigation becomes a wrapping row, and parameter rows stack text above the control.
+ * <= 860px (phone): the login hero stacks above the form, the sidebar becomes a horizontal
+ *   scrolling nav bar (brand and version hidden) and the page padding shrinks. */
+@media (max-width: 1100px) {
+  .live-layout, .settings { grid-template-columns: 1fr; }
+  .settings nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .param { grid-template-columns: 1fr; }
+}
+@media (max-width: 860px) {
+  .login { grid-template-columns: 1fr; }
+  .login-hero { min-height: 320px; padding: 28px; }
+  .app { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; flex-direction: row; overflow-x: auto; padding: 8px; }
+  .sidebar .brand, .sidebar .spacer, .sidebar .version { display: none; }
+  .nav-item { width: auto; }
+  .content { padding: 14px; }
+}
+
+/* ---------------------------------------------------------------- utilities (no inline styles: CSP)
+ * One-purpose classes used by index.html where a style="" attribute would otherwise be needed
+ * (the CSP blocks inline styles). .sprite hides the SVG symbol library without display:none,
+ * which could prevent some browsers from rendering the referenced symbols. */
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.icon-xl { width: 36px; height: 36px; color: var(--accent); }
+.mt { margin-top: 18px; }
+.h36 { height: 36px; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.drop .grow { flex: 1; }
+.sw-ok { background: var(--ok); } .sw-bad { background: var(--danger); }
+/* Staggered negative delays: each waveform bar starts mid-cycle, so the bars move out of phase. */
+.wave .d1 { animation-delay: -0.1s; }
+.wave .d2 { animation-delay: -0.5s; }
+.wave .d3 { animation-delay: -0.3s; }
+.wave .d4 { animation-delay: -0.8s; }
+.wave .d5 { animation-delay: -0.2s; }
+.wave .d6 { animation-delay: -0.6s; }
+.wave .d7 { animation-delay: -0.4s; }
+.wave .d8 { animation-delay: -0.9s; }
+.wave .d9 { animation-delay: -0.15s; }
+.wave .d10 { animation-delay: -0.7s; }
+
+/* ---------------------------------------------------------------- recordings & time-lapse
+ * Clip cards: 16:9 thumbnail with a duration tag and a play icon revealed on hover. The clip
+ * player dialog is wider than the default dialog (max 960px / 94vw) and edge-to-edge. The
+ * time-lapse timestamp reuses the LIVE badge position with a neutral dark background. */
+.clip { cursor: pointer; }
+.clip .thumbwrap { position: relative; }
+.clip .thumbwrap img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-sm); display: block; background: #000; }
+.clip .dur { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.72); color: #fff; font-size: 11px;
+             font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+.clip .play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; opacity: 0; transition: opacity .15s; }
+.clip:hover .play { opacity: 1; }
+.clip .play .icon { width: 42px; height: 42px; fill: rgba(255,255,255,.9); stroke: none; }
+.clip-dialog { width: min(960px, 94vw); max-width: none; padding: 0; overflow: hidden; }
+.clip-dialog video { width: 100%; display: block; background: #000; max-height: 70vh; }
+.clip-dialog p { padding: 10px 18px; margin: 0; }
+.tl-stamp { background: rgba(0, 0, 0, .7); letter-spacing: .02em; font-weight: 600; }
+.tl-seek { flex: 1; padding: 0; height: 6px; }
+
+/* ----------------------------------------------------------------------------- password dialog
+ * Password change (forced after admin/admin, or from the user menu). The checklist items turn
+ * green (.ok) as the typed password meets each rule of the server policy. */
+.password-dialog { width: min(460px, 94vw); }
+.password-dialog form { display: flex; flex-direction: column; gap: 14px; }
+.password-dialog h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 19px; }
+.pw-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.pw-rules li::before { content: "○"; display: inline-block; width: 1.4em; color: var(--muted); }
+.pw-rules li.ok { color: var(--ok); }
+.pw-rules li.ok::before { content: "✓"; color: var(--ok); font-weight: 700; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+/* No reserved error line in the dialog: the checklist already explains what is missing. */
+.password-dialog .error:empty { display: none; }
+/* Behind the forced dialog, the application shell stays visible but inert. */
+.app.locked { filter: blur(3px) grayscale(.3); pointer-events: none; user-select: none; }
+
+/* ----------------------------------------------------------------------------- camera stream card
+ * Settings > Camera stream: annotated live preview (left) and analysis KPIs + stream test (right). */
+.camera-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
+.stream-box { position: relative; background: #000; border-radius: var(--radius-sm); overflow: hidden; aspect-ratio: 16 / 9; }
+.stream-box img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.stream-box p { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0;
+                padding: 16px; text-align: center; color: #cbd5e1; }
+.probe-ok, .probe-bad { border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; }
+.probe-ok { background: var(--ok-soft); }
+.probe-bad { background: var(--danger-soft); color: var(--danger); }
+.probe-ok dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; }
+.probe-ok dt { color: var(--muted); }
+.probe-ok dd { margin: 0; font-family: var(--mono); }
+.probe-warn { margin: 8px 0 0; padding-left: 18px; color: var(--warn); }
+
+/* ----------------------------------------------------------------------------- log viewer
+ * Monospace list, one row per entry, colored by level; long messages (tracebacks) stay on
+ * one scrollable line unless "Wrap lines" is checked (.wrap). Search hits are <mark>ed. */
+.log-view { background: #0b1220; color: #d6e2f0; font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+            border-radius: var(--radius); padding: 10px 0; max-height: 68vh; min-height: 240px; overflow: auto; }
+.log-view .row { display: grid; grid-template-columns: 14.5em 5.5em 5em 16em 1fr; gap: 10px; padding: 1px 14px;
+                 white-space: pre; }
+.log-view.wrap .row { white-space: pre-wrap; word-break: break-word; }
+.log-view .row:hover { background: rgba(255, 255, 255, .05); }
+.log-view .time, .log-view .proc { color: #7d8ba1; }
+.log-view .logger { color: #8fb3ff; overflow: hidden; text-overflow: ellipsis; }
+.log-view .lvl { font-weight: 700; }
+.log-view .DEBUG .lvl { color: #7d8ba1; }
+.log-view .INFO .lvl { color: #5ad19a; }
+.log-view .WARNING .lvl { color: #f5b544; }
+.log-view .ERROR .lvl, .log-view .CRITICAL .lvl { color: #ff6b6b; }
+.log-view .ERROR .msg, .log-view .CRITICAL .msg { color: #ffc9c9; }
+.log-view mark { background: #f5d547; color: #111; border-radius: 2px; }
+.log-view .empty { color: #7d8ba1; }
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+.live-on .live-dot { background: var(--danger); animation: blink 1s infinite; }
+@media (max-width: 900px) {
+  .camera-grid { grid-template-columns: 1fr; }
+  .log-view .row { grid-template-columns: 1fr; gap: 0; padding: 4px 14px; border-bottom: 1px solid rgba(255, 255, 255, .06); }
+}
+
+/* ----------------------------------------------------------------------------- vehicles
+ * Plate text in a "license plate" style (monospace, framed); vehicle snapshot thumbnails. */
+.plate-tag { font-family: var(--mono); font-weight: 700; letter-spacing: .06em; border: 2px solid var(--text);
+             border-radius: 4px; padding: 1px 7px; background: var(--surface); white-space: nowrap; }
+img.vehicle { width: 72px; height: 48px; border-radius: 6px; object-fit: cover; display: block; cursor: zoom-in; }
+
+
+/* Right-aligned action cell of a table row. */
+.right { text-align: right; white-space: nowrap; }
+/* Person selector of the plate form: readable even while only "—" is listed. */
+#plate-person { min-width: 11em; }

@@ -1,0 +1,288 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/postflight/tasks/main.yml
+# Purpose : Sanity checks AFTER the deployment: services, ports, HTTPS, certificate, login, security
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Every check fails the play with an explicit message. Run them alone at any time:
+#   ./jarvis-deploy.sh postflight
+
+# --- 1. services -----------------------------------------------------------------------------
+# systemd_service without "state" only reads the unit properties (systemctl show).
+- name: "[1/9] Services are running and start at boot"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+  loop: "{{ postflight_units }}"
+  register: postflight_unit
+  retries: 10
+  delay: 3
+  until: postflight_unit.status.ActiveState == 'active'
+  failed_when: >-
+    postflight_unit.status.ActiveState != 'active'
+    or (item != 'ssh.service' and postflight_unit.status.UnitFileState not in ['enabled', 'static', 'alias', 'indirect'])
+
+- name: "[1/9] The installed version is the deployed one"
+  ansible.builtin.command: "{{ jarvis_venv }}/bin/python -c 'import jarvis; print(jarvis.__version__)'"
+  environment: { PYTHONDONTWRITEBYTECODE: "1" }
+  register: postflight_version
+  changed_when: false
+  failed_when: postflight_version.stdout != jarvis_version
+
+# --- 2. ports ---------------------------------------------------------------------------------
+- name: "[2/9] Ports are open and listening"
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ item }}"
+    timeout: 60
+  loop: "{{ [80, 443, 8000] + ([8923] if jarvis_anubis_enabled | bool else []) }}"
+
+- name: "[2/9] List the listening TCP sockets"
+  ansible.builtin.command: ss -H -ltn
+  register: postflight_ss
+  changed_when: false
+
+- name: "[2/9] The API and Anubis listen on loopback only"
+  ansible.builtin.assert:
+    that: >-
+      postflight_ss.stdout_lines | map('split') | map(attribute=3)
+      | select('match', '^(0\.0\.0\.0|\*|\[::\]):(8000|8923|9091)$') | list | length == 0
+    fail_msg: >-
+      An internal port (8000/8923/9091) is exposed on all interfaces: {{ postflight_ss.stdout_lines }}
+    quiet: true
+
+# --- 3. HTTP -> HTTPS -----------------------------------------------------------------------------
+- name: "[3/9] HTTP answers with a permanent redirect"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/some/page?x=1"
+    headers: { Host: "{{ postflight_name }}" }
+    follow_redirects: none
+    status_code: [301]
+  register: postflight_redirect
+
+- name: "[3/9] The redirect targets HTTPS on the same host and path"
+  ansible.builtin.assert:
+    that: postflight_redirect.location == 'https://' ~ postflight_name ~ '/some/page?x=1'
+    fail_msg: "Unexpected redirect target: {{ postflight_redirect.location | default('none') }}"
+    quiet: true
+
+# --- 4. HTTPS: TLS versions and security headers ------------------------------------------------------
+- name: "[4/9] TLS 1.2 and 1.3 are accepted, TLS 1.1 is refused"
+  ansible.builtin.shell: |
+    set -o pipefail
+    probe() { openssl s_client -connect 127.0.0.1:443 -servername {{ postflight_name }} "-$1" </dev/null 2>/dev/null; }
+    for v in tls1_2 tls1_3; do
+      probe "$v" | grep -q '^ *Protocol *: *TLSv1\.[23]' || { echo "$v refused"; exit 1; }
+    done
+    if probe tls1_1 | grep -q '^ *Protocol *: *TLSv1\.1'; then echo "TLS 1.1 accepted"; exit 1; fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: "[4/9] Fetch the HTTPS response headers (certificate verified)"
+  ansible.builtin.command: "{{ postflight_curl }} -o /dev/null -D - {{ postflight_url }}/"
+  register: postflight_https
+  changed_when: false
+
+- name: "[4/9] Security headers are present"
+  ansible.builtin.assert:
+    that: postflight_https.stdout is search('(?im)^' ~ item.key ~ ':[^\n]*' ~ (item.value | regex_escape))
+    fail_msg: "Header {{ item.key }} missing or without '{{ item.value }}'."
+    quiet: true
+  loop: "{{ postflight_headers | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: "[4/9] The server version is not disclosed"
+  ansible.builtin.assert:
+    that: postflight_https.stdout is not search('(?im)^server:[^\n]*[0-9]')
+    fail_msg: "The Server header discloses a version."
+    quiet: true
+
+- name: "[4/9] Robots: robots.txt forbids everything, AI and search crawlers get 403"
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ postflight_curl }} {{ postflight_url }}/robots.txt | grep -qx 'Disallow: /'
+    for ua in GPTBot ClaudeBot Googlebot bingbot CCBot PerplexityBot; do
+      code=$({{ postflight_curl }} -o /dev/null -w '%{http_code}' -A "Mozilla/5.0 (compatible; $ua/1.0)" {{ postflight_url }}/)
+      [ "$code" = 403 ] || { echo "$ua got $code"; exit 1; }
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: "[4/9] Anubis challenges web browsers"
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ postflight_curl }} -A 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' {{ postflight_url }}/ | grep -qi anubis
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: jarvis_anubis_enabled | bool
+
+# --- 5. certificate and its renewal -------------------------------------------------------------
+- name: "[5/9] The certificate is valid, matches its key and is the one served"
+  ansible.builtin.command: "/usr/local/sbin/jarvis-cert status --json --no-revocation --remote 127.0.0.1:443"
+  environment: { JARVIS_COLOR: never }
+  register: postflight_cert
+  changed_when: false
+  failed_when: >-
+    postflight_cert.rc != 0
+    or (postflight_cert.stdout | from_json).state != 'VALID'
+    or not (postflight_cert.stdout | from_json).served.startswith('ok')
+
+- name: "[5/9] The renewal timer is scheduled"
+  ansible.builtin.systemd_service:
+    name: jarvis-cert-renew.timer
+  register: postflight_timer
+  failed_when: postflight_timer.status.NextElapseUSecRealtime | default('') in ['', '0', 'n/a']
+
+- name: "[5/9] Renewal drill: force a renewal and check the new certificate is served"
+  when: jarvis_postflight_renewal_drill | bool and jarvis_tls_mode == 'local'
+  block:
+    - name: "[5/9] Renew as if the certificate expired within 400 days"
+      ansible.builtin.command: /usr/local/sbin/jarvis-cert renew --days-before 400
+      environment: { JARVIS_COLOR: never }
+      changed_when: true
+
+    - name: "[5/9] Check the renewed certificate"
+      ansible.builtin.command: "/usr/local/sbin/jarvis-cert status --json --no-revocation --remote 127.0.0.1:443"
+      environment: { JARVIS_COLOR: never }
+      register: postflight_cert_renewed
+      changed_when: false
+      retries: 5
+      delay: 2
+      until: postflight_cert_renewed.rc == 0 and (postflight_cert_renewed.stdout | from_json).served.startswith('ok')
+
+    - name: "[5/9] The serial number changed"
+      ansible.builtin.assert:
+        that: (postflight_cert_renewed.stdout | from_json).serial != (postflight_cert.stdout | from_json).serial
+        fail_msg: "The renewal did not produce a new certificate."
+        quiet: true
+
+# --- 6. default web login ---------------------------------------------------------------------------
+- name: "[6/9] Log in with the default credentials admin / admin"
+  ansible.builtin.shell: |
+    set -o pipefail
+    jar=$(mktemp); trap 'rm -f "$jar"' EXIT
+    {{ postflight_curl }} -c "$jar" -H 'X-Jarvis: 1' -H 'Content-Type: application/json' \
+      -d '{"username": "admin", "password": "admin"}' -w '\n%{http_code}' {{ postflight_url }}/api/login > "$jar.out"
+    code=$(tail -n1 "$jar.out"); body=$(head -n -1 "$jar.out"); rm -f "$jar.out"
+    echo "login=$code"
+    [ "$code" = 200 ] || { echo "$body"; exit 0; }
+    echo "$body" | jq -e '.must_change_password == true' >/dev/null && echo "forced_change=yes"
+    blocked=$({{ postflight_curl }} -b "$jar" -H 'X-Jarvis: 1' -o /dev/null -w '%{http_code}' {{ postflight_url }}/api/settings)
+    echo "settings_before_change=$blocked"
+    {{ postflight_curl }} -b "$jar" -H 'X-Jarvis: 1' -X POST -o /dev/null {{ postflight_url }}/api/logout
+  args:
+    executable: /bin/bash
+  register: postflight_login
+  changed_when: false
+  no_log: false
+  when: >-
+    jarvis_postflight_default_login == 'always'
+    or (jarvis_postflight_default_login == 'auto' and jarvis_first_install | default(false) | bool)
+
+- name: "[6/9] The default login works and forces a password change"
+  ansible.builtin.assert:
+    that:
+      - "'login=200' in postflight_login.stdout_lines"
+      - "'forced_change=yes' in postflight_login.stdout_lines"
+      - "'settings_before_change=403' in postflight_login.stdout_lines"
+    fail_msg: "Default login check failed: {{ postflight_login.stdout_lines }}"
+    quiet: true
+  when: postflight_login is not skipped
+
+- name: "[6/9] Default login check skipped (not the first installation)"
+  ansible.builtin.debug:
+    msg: "The admin password has probably been changed already; set jarvis_postflight_default_login: always to force the check."
+  when: postflight_login is skipped
+
+# --- 7. firewall and fail2ban --------------------------------------------------------------------
+- name: "[7/9] The Jarvis firewall table is loaded with a drop policy"
+  ansible.builtin.command: nft list chain inet jarvis_filter input
+  register: postflight_nft
+  changed_when: false
+  failed_when: "'policy drop' not in postflight_nft.stdout"
+
+- name: "[7/9] fail2ban jails are active"
+  ansible.builtin.command: fail2ban-client status
+  register: postflight_f2b
+  changed_when: false
+  retries: 5
+  delay: 2
+  until: postflight_f2b.rc == 0
+  failed_when: >-
+    postflight_f2b.rc != 0
+    or ['sshd', 'jarvis-login', 'nginx-botsearch', 'recidive'] | reject('in', postflight_f2b.stdout) | list | length > 0
+
+- name: "[7/9] The web login filter matches a failed login line"
+  ansible.builtin.shell: |
+    set -o pipefail
+    printf '%s\n' '192.0.2.10 - - [30/Sep/2026:11:00:00 +0200] "POST /api/login HTTP/2.0" 401 43 "-" "curl/8"' > /tmp/jarvis-f2b-test.log
+    fail2ban-regex /tmp/jarvis-f2b-test.log /etc/fail2ban/filter.d/jarvis-login.conf | grep -q 'Failregex: 1 total'
+    rc=$?; rm -f /tmp/jarvis-f2b-test.log; exit $rc
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+# --- 8. SSH and system hardening -----------------------------------------------------------------
+- name: "[8/9] Read the effective sshd configuration"
+  ansible.builtin.command: sshd -T
+  register: postflight_sshd
+  changed_when: false
+
+- name: "[8/9] sshd is hardened and shows the legal banner"
+  ansible.builtin.assert:
+    that:
+      - "'permitrootlogin no' in postflight_sshd.stdout_lines"
+      - "'x11forwarding no' in postflight_sshd.stdout_lines"
+      - "'allowtcpforwarding no' in postflight_sshd.stdout_lines"
+      - "'banner /etc/issue.net' in postflight_sshd.stdout_lines"
+      - "jarvis_ssh_password_authentication | bool or 'passwordauthentication no' in postflight_sshd.stdout_lines"
+    fail_msg: "sshd -T does not show the hardened settings."
+    quiet: true
+
+- name: "[8/9] Kernel hardening parameters are applied"
+  ansible.builtin.command: sysctl -n kernel.kptr_restrict kernel.dmesg_restrict net.ipv4.conf.all.accept_redirects
+  register: postflight_sysctl
+  changed_when: false
+  failed_when: postflight_sysctl.stdout_lines != ['2', '1', '0']
+  when: jarvis_harden_kernel | bool and not jarvis_in_container
+
+- name: "[8/9] AppArmor is enforcing"
+  ansible.builtin.command: aa-enabled
+  register: postflight_aa
+  changed_when: false
+  failed_when: postflight_aa.stdout != 'Yes'
+  when: jarvis_apparmor | bool and not jarvis_in_container
+
+# --- 9. MOTD -------------------------------------------------------------------------------------
+- name: "[9/9] The MOTD renders"
+  ansible.builtin.command: /usr/local/bin/jarvis-motd --no-logo --no-color
+  register: postflight_motd
+  changed_when: false
+  failed_when: postflight_motd.rc != 0 or 'Jarvis services' not in postflight_motd.stdout
+  when: jarvis_motd | bool
+
+# --- summary --------------------------------------------------------------------------------------
+- name: Collect the final certificate state
+  ansible.builtin.set_fact:
+    postflight_cert_final: >-
+      {{ (postflight_cert_renewed.stdout if postflight_cert_renewed.stdout is defined else postflight_cert.stdout) | from_json }}
+
+- name: Deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "jarvis-home {{ jarvis_version }} deployed and verified on {{ inventory_hostname }}"
+      - "Web UI       : {{ postflight_url }}/  (also https://{{ ansible_default_ipv4.address | default('<ip>') }}/)"
+      - >-
+        Certificate  : {{ postflight_cert_final.state }} ({{ postflight_cert_final.mode }}),
+        {{ postflight_cert_final.days_left }} days left, renewal timer active
+      - >-
+        {{ ('Local CA     : artifacts/' ~ inventory_hostname ~ '/jarvis-ca.crt (import it on the client devices)')
+           if jarvis_tls_mode == 'local' else ('Public name  : ' ~ jarvis_le_domain) }}
+      - "First login  : admin / admin, a new password is required immediately"
+      - "SSH          : ssh {{ jarvis_admin_user }}@{{ ansible_host | default(inventory_hostname) }}  (banner + MOTD; jarvis-console for the menu)"

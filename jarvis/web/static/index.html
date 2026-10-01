@@ -1,0 +1,660 @@
+<!doctype html>
+<!-- =============================================================================
+     Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+     -----------------------------------------------------------------------------
+     File    : jarvis/web/static/index.html
+     Purpose : Single-page web console (login screen and application shell)
+     Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+     Project : jarvis-home (version: jarvis/VERSION)
+     Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+     =============================================================================
+     All visible texts carry a data-i18n key; they are translated at runtime by app.js from
+     i18n/<locale>.json. Default locale: en-US. -->
+<!-- Page structure and conventions
+     - Two top-level views, toggled by app.js with the `hidden` attribute: #login-view (shown
+       when there is no valid session) and #app-view (sidebar + top bar + pages). Both start
+       hidden; the boot code in app.js reveals one after calling GET /api/me.
+     - i18n attributes: data-i18n="key" replaces the element's textContent with the
+       translation of `key`; data-i18n-placeholder="key" does the same for the placeholder.
+       The English text written here is only the default shown if a key is missing.
+     - Navigation: sidebar buttons carry data-page="<name>"; app.js shows the matching
+       <div class="page" id="page-<name>"> and hides the others. data-rec-tab and
+       data-audit-tab select the sub-panels of the Recordings and Audit pages.
+     - `hidden` is also the initial state of every conditional element (notices, banners,
+       menus, pagers, save bar); style.css forces [hidden] to display:none !important so no
+       component rule can override it.
+     - Content Security Policy (sent by the nginx reverse proxy, deploy/nginx/jarvis.conf):
+       default-src 'self', so scripts and styles may only come from this origin and
+       'unsafe-inline' is not granted; img-src also allows data: and blob:. Therefore this file has
+       no inline <script> body, no on* handler attributes and no inline style attribute; all
+       behavior is wired in app.js and all styling lives in style.css (utility classes such as
+       .mt, .h36, .icon-xl replace inline styles).
+     - Images live in img/ (same origin, allowed by the CSP): favicon.svg / favicon.ico /
+       apple-touch-icon.png, the PWA icons referenced by manifest.webmanifest, login-bg.svg
+       (login hero background, set in style.css). The animated hero illustration and the icon
+       sprite stay inline so that the page also renders when opened as a local file (file://):
+       img/icons.svg is the standalone copy of the sprite (same symbols except the logo, which is
+       img/favicon.svg; checked by tests/test_web_ui.py) and img/login-hero.svg a static,
+       unanimated version of the illustration for the documentation.
+     - Opened as a local file, the page cannot reach the API: app.js shows the login view with
+       an explanatory notice instead of a blank page. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#1f6feb">
+  <!-- Private console: never indexed, cached or archived (nginx also sends X-Robots-Tag). -->
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+  <meta name="description" content="Jarvis local face and voice identification gatekeeper">
+  <title>Jarvis · Identity &amp; Access</title>
+  <!-- Icons: ICO for legacy browsers, SVG for modern ones, PNG for iOS home screens. -->
+  <link rel="icon" href="img/favicon.ico" sizes="any">
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- SVG symbol library (icons). Never rendered itself (.sprite collapses it to 0x0); every icon
+     is drawn with <svg class="icon"><use href="#i-NAME"/></svg>, here and from app.js icon().
+     Symbols are stroke-based: .icon sets stroke=currentColor, so icons follow the text color.
+     Keeping them inline avoids any external asset (CSP 'self', offline appliance). -->
+<svg class="sprite" width="0" height="0" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1f6feb"/><path d="M9 12V9h3M23 12V9h-3M9 20v3h3M23 20v3h-3" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="16" cy="16" r="3.2" fill="#fff"/></symbol>
+  <symbol id="i-live" viewBox="0 0 24 24"><path d="M15 10l5-3v10l-5-3"/><rect x="3" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-sightings" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/><circle cx="7.5" cy="9.5" r="1.2"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6c2.6.2 4.6 1.9 5.3 4.9"/></symbol>
+  <symbol id="i-visitors" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.2-6.5 8-6.5s7 2.5 8 6.5"/><path d="M11 7.2c.3-.8 1.9-.9 2 .2 0 .9-1 1-1 1.8M12 11h.01"/></symbol>
+  <symbol id="i-events" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></symbol>
+  <symbol id="i-audit" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.2-6 8-6s7 2 8 6"/></symbol>
+  <symbol id="i-garage" viewBox="0 0 24 24"><path d="M3 10l9-6 9 6v10H3z"/><path d="M7 20v-7h10v7M7 16h10"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
+  <symbol id="i-logs" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 16V11l2-5h10l2 5v5"/><path d="M3 16h18v3H3z"/><circle cx="7.5" cy="16.5" r="1.3"/><circle cx="16.5" cy="16.5" r="1.3"/><path d="M5 11h14"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></symbol>
+</svg>
+
+<!-- =================================================================== LOGIN -->
+<!-- Login view: split screen, decorative hero on the left, sign-in form on the right
+     (stacked on narrow screens). Hidden until app.js knows there is no valid session. -->
+<section id="login-view" class="login" hidden>
+  <!-- Hero: brand, animated illustration and marketing tagline (purely decorative). -->
+  <div class="login-hero">
+    <div class="brand"><svg><use href="#i-logo"/></svg>JARVIS</div>
+    <div class="art">
+      <!-- Face identification + voice verification illustration. Static SVG animated only by
+           CSS classes (.ring, .scan-line, .mesh-dot, .wave rect .d1-.d10) defined in style.css,
+           all disabled under prefers-reduced-motion. The hard-coded labels ("FACE MATCH",
+           "98.7 %", "VOICE ID", "ACCESS GRANTED") are artwork, intentionally not translated. -->
+      <svg viewBox="0 0 520 420" role="img" aria-label="Face and voice identification">
+        <defs>
+          <linearGradient id="g-face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5ab0ff"/><stop offset="1" stop-color="#1f6feb"/></linearGradient>
+          <linearGradient id="g-scan" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#38bdf8" stop-opacity="0"/><stop offset=".5" stop-color="#7dd3fc"/><stop offset="1" stop-color="#38bdf8" stop-opacity="0"/></linearGradient>
+          <radialGradient id="g-glow"><stop offset="0" stop-color="#1f6feb" stop-opacity=".35"/><stop offset="1" stop-color="#1f6feb" stop-opacity="0"/></radialGradient>
+        </defs>
+        <circle cx="260" cy="200" r="190" fill="url(#g-glow)"/>
+        <g class="ring" fill="none" stroke="#2f5d94" stroke-width="1.2">
+          <circle cx="260" cy="200" r="170" stroke-dasharray="4 10"/>
+          <circle cx="260" cy="200" r="150" stroke-dasharray="60 20" stroke="#3b82f6" stroke-opacity=".5"/>
+        </g>
+        <!-- corner brackets (detection box) -->
+        <g stroke="#7dd3fc" stroke-width="3" fill="none" stroke-linecap="round">
+          <path d="M170 80v-24h24M350 80v-24h-24M170 320v24h24M350 320v24h-24"/>
+        </g>
+        <!-- face contour -->
+        <path d="M260 72c-52 0-88 38-88 96 0 38 12 72 30 96 16 22 36 36 58 36s42-14 58-36c18-24 30-58 30-96 0-58-36-96-88-96z"
+              fill="none" stroke="url(#g-face)" stroke-width="2.4"/>
+        <!-- landmark mesh -->
+        <g stroke="#60a5fa" stroke-opacity=".45" stroke-width="1" fill="none">
+          <path d="M214 150l24 8 22-4 22 4 24-8M226 196l34 -8 34 8M236 246l24 10 24-10M260 154v58M226 196l10 50M294 196l-10 50M214 150l12 46M306 150l-12 46M238 158l22 30 22-30M236 246l-24-40M284 246l24-40"/>
+        </g>
+        <g fill="#bfdbfe">
+          <circle class="mesh-dot" cx="214" cy="150" r="3.4"/><circle class="mesh-dot" cx="238" cy="158" r="3"/>
+          <circle class="mesh-dot" cx="260" cy="154" r="3"/><circle class="mesh-dot" cx="282" cy="158" r="3"/>
+          <circle class="mesh-dot" cx="306" cy="150" r="3.4"/><circle class="mesh-dot" cx="226" cy="196" r="3.4"/>
+          <circle class="mesh-dot" cx="260" cy="188" r="3.4"/><circle class="mesh-dot" cx="294" cy="196" r="3.4"/>
+          <circle class="mesh-dot" cx="260" cy="212" r="3"/><circle class="mesh-dot" cx="236" cy="246" r="3.4"/>
+          <circle class="mesh-dot" cx="260" cy="256" r="3.4"/><circle class="mesh-dot" cx="284" cy="246" r="3.4"/>
+        </g>
+        <!-- eyes -->
+        <g fill="#e0f2fe"><ellipse cx="232" cy="176" rx="9" ry="4.5"/><ellipse cx="288" cy="176" rx="9" ry="4.5"/></g>
+        <!-- scan line -->
+        <rect class="scan-line" x="160" y="70" width="200" height="3" fill="url(#g-scan)"/>
+        <!-- match label -->
+        <g transform="translate(360 104)">
+          <rect width="138" height="54" rx="10" fill="#0f2742" stroke="#2f5d94"/>
+          <text x="14" y="22" fill="#93c5fd" font-size="11" font-family="system-ui" letter-spacing="1.5">FACE MATCH</text>
+          <text x="14" y="42" fill="#fff" font-size="17" font-weight="700" font-family="system-ui">98.7 %</text>
+          <circle cx="118" cy="27" r="7" fill="#22c55e"/>
+        </g>
+        <!-- voice waveform -->
+        <g transform="translate(22 250)">
+          <rect width="150" height="84" rx="12" fill="#0f2742" stroke="#2f5d94"/>
+          <text x="14" y="22" fill="#93c5fd" font-size="11" font-family="system-ui" letter-spacing="1.5">VOICE ID</text>
+          <g class="wave" fill="#38bdf8">
+            <rect class="d1" x="16" y="36" width="6" height="36" rx="3"/><rect class="d2" x="28" y="36" width="6" height="36" rx="3"/>
+            <rect class="d3" x="40" y="36" width="6" height="36" rx="3"/><rect class="d4" x="52" y="36" width="6" height="36" rx="3"/>
+            <rect class="d5" x="64" y="36" width="6" height="36" rx="3"/><rect class="d6" x="76" y="36" width="6" height="36" rx="3"/>
+            <rect class="d7" x="88" y="36" width="6" height="36" rx="3"/><rect class="d8" x="100" y="36" width="6" height="36" rx="3"/>
+            <rect class="d9" x="112" y="36" width="6" height="36" rx="3"/><rect class="d10" x="124" y="36" width="6" height="36" rx="3"/>
+          </g>
+        </g>
+        <!-- access granted -->
+        <g transform="translate(318 300)">
+          <rect width="192" height="46" rx="23" fill="#0f2a1a" stroke="#16a34a"/>
+          <path d="M22 23l7 7 13-14" stroke="#22c55e" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <text x="52" y="28" fill="#bbf7d0" font-size="13" font-weight="700" font-family="system-ui" letter-spacing="1">ACCESS GRANTED</text>
+        </g>
+      </svg>
+    </div>
+    <div class="tagline">
+      <h2 data-i18n="login.hero_title">Face &amp; voice identification, fully on-premises.</h2>
+      <p data-i18n="login.hero_text">Real-time person tracking, face recognition and spoken commands — processed locally, never sent to the cloud.</p>
+      <div class="pills">
+        <span data-i18n="login.pill_face">Face recognition</span>
+        <span data-i18n="login.pill_voice">Voice commands</span>
+        <span data-i18n="login.pill_audit">Tamper-evident audit</span>
+        <span data-i18n="login.pill_local">100 % local</span>
+      </div>
+    </div>
+  </div>
+  <!-- Sign-in form: app.js posts {username, password} to POST /api/login. The field names are
+       the JSON keys; the autocomplete tokens let password managers fill the form. -->
+  <div class="login-panel">
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div>
+        <h1 data-i18n="login.title">Sign in</h1>
+        <p class="sub" data-i18n="login.subtitle">Jarvis administration console</p>
+      </div>
+      <!-- Session-expired / idle-timeout notice, filled and unhidden by app.js showLogin(notice). -->
+      <p id="login-notice" class="notice" hidden></p>
+      <label class="field"><span data-i18n="login.username">Username</span>
+        <input name="username" autocomplete="username" required autofocus></label>
+      <label class="field"><span data-i18n="login.password">Password</span>
+        <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit" data-i18n="login.submit">Sign in</button>
+      <!-- Credential or rate-limit error; role=alert makes screen readers announce it. -->
+      <p id="login-error" class="error" role="alert"></p>
+      <div class="foot">
+        <span data-i18n="login.secure">Encrypted connection · session auto-lock</span>
+        <!-- Language picker; the options are generated by app.js from its LANGS table (.lang-select). -->
+        <label class="check"><svg class="icon"><use href="#i-globe"/></svg><select id="login-lang" class="lang-select" aria-label="Language"></select></label>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- =================================================================== APP -->
+<!-- Application shell: fixed sidebar (navigation), sticky top bar (status chips, user menu)
+     and the page container. Shown by app.js showApp() after a successful /api/me or login. -->
+<section id="app-view" class="app" hidden>
+  <!-- Sidebar navigation. data-page names the page to open (see PAGES in app.js); .active marks
+       the current one. Becomes a horizontal scrolling bar below 860px. -->
+  <aside class="sidebar">
+    <div class="brand"><svg><use href="#i-logo"/></svg><div>JARVIS<small data-i18n="app.tagline">Identity &amp; Access</small></div></div>
+    <button class="nav-item active" data-page="live"><svg class="icon"><use href="#i-live"/></svg><span data-i18n="nav.live">Live</span></button>
+    <button class="nav-item" data-page="sightings"><svg class="icon"><use href="#i-sightings"/></svg><span data-i18n="nav.sightings">Sightings</span></button>
+    <button class="nav-item" data-page="recordings"><svg class="icon"><use href="#i-video"/></svg><span data-i18n="nav.recordings">Recordings</span></button>
+    <button class="nav-item" data-page="people"><svg class="icon"><use href="#i-people"/></svg><span data-i18n="nav.people">People</span></button>
+    <button class="nav-item" data-page="visitors"><svg class="icon"><use href="#i-visitors"/></svg><span data-i18n="nav.visitors">Visitors</span></button>
+    <button class="nav-item" data-page="vehicles"><svg class="icon"><use href="#i-car"/></svg><span data-i18n="nav.vehicles">Vehicles</span></button>
+    <button class="nav-item" data-page="events"><svg class="icon"><use href="#i-events"/></svg><span data-i18n="nav.events">Events</span></button>
+    <button class="nav-item" data-page="audit"><svg class="icon"><use href="#i-audit"/></svg><span data-i18n="nav.audit">Audit</span></button>
+    <button class="nav-item" data-page="logs"><svg class="icon"><use href="#i-logs"/></svg><span data-i18n="nav.logs">Logs</span></button>
+    <button class="nav-item" data-page="settings"><svg class="icon"><use href="#i-settings"/></svg><span data-i18n="nav.settings">Settings</span></button>
+    <div class="spacer"></div>
+    <!-- Filled from GET /api/me "version" (single source: jarvis/VERSION). -->
+    <div class="version" id="app-version">jarvis-home</div>
+  </aside>
+
+  <div class="main">
+    <!-- Top bar: page title (set by app.js go()), status chips refreshed every 5 s from
+         GET /api/status (chip classes ok/bad set by refreshStatus()), and the user menu. -->
+    <header class="topbar">
+      <h1 id="page-title"></h1>
+      <span id="chip-core" class="chip" data-i18n="chip.core">Core</span>
+      <span id="chip-camera" class="chip" data-i18n="chip.camera">Camera</span>
+      <span id="chip-fps" class="chip plain">– fps</span>
+      <!-- User menu: toggled by #user-btn, closed on any outside click. Contains the language
+           picker, the idle-timeout reminder (#idle-info) and the sign-out button. -->
+      <div class="user-menu">
+        <button id="user-btn" class="secondary"><svg class="icon"><use href="#i-user"/></svg><span id="whoami"></span></button>
+        <div id="user-menu" class="menu" hidden>
+          <label class="field"><span data-i18n="menu.language">Language</span><select id="app-lang" class="lang-select"></select></label>
+          <p class="muted" id="idle-info"></p>
+          <button id="change-password" class="secondary"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="menu.change_password">Change password</span></button>
+          <button id="logout" class="secondary"><svg class="icon"><use href="#i-logout"/></svg><span data-i18n="menu.logout">Sign out</span></button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Pages: one <div class="page" id="page-NAME"> per sidebar entry; only one is visible at a
+         time. Page content is mostly rendered by app.js into the empty containers below. -->
+    <main class="content">
+      <!-- ------------------------------------------------------------ LIVE -->
+      <!-- Live: MJPEG preview (#stream src is set to /api/stream.mjpg only while this page is
+           shown), KPI tiles (#kpis, from the status polling) and actions: garage pulse,
+           PTZ home and text-to-speech (#say-form, POST /api/say). -->
+      <div class="page" id="page-live">
+        <div class="live-layout">
+          <div class="card">
+            <div class="stream-wrap"><img id="stream" alt=""><span class="live-badge">LIVE</span></div>
+          </div>
+          <div class="actions">
+            <div class="card"><div class="card-h"><h2 data-i18n="live.status">System status</h2></div>
+              <div class="card-b"><div class="kpis" id="kpis"></div></div></div>
+            <div class="card"><div class="card-h"><h2 data-i18n="live.actions">Actions</h2></div>
+              <div class="card-b actions">
+                <button id="btn-garage" class="danger"><svg class="icon"><use href="#i-garage"/></svg><span data-i18n="live.garage">Garage door pulse</span></button>
+                <button id="btn-home" class="secondary"><svg class="icon"><use href="#i-home"/></svg><span data-i18n="live.ptz_home">PTZ: home position</span></button>
+                <form id="say-form" class="row"><input name="text" maxlength="200" data-i18n-placeholder="live.say_placeholder" placeholder="Make Jarvis speak…"><button data-i18n="live.say">Speak</button></form>
+              </div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ------------------------------------------------------- SIGHTINGS -->
+      <!-- Sightings: filter form (field names are the query parameters of GET /api/sightings and
+           of the CSV export link), 14-day bar chart, face search drop zone and the paginated table.
+           "Load older" (#more-sightings) is hidden when the last page is reached. -->
+      <div class="page" id="page-sightings" hidden>
+        <div class="card"><div class="card-b">
+          <form id="sightings-filter" class="toolbar">
+            <label class="field"><span data-i18n="filter.from_date">From</span><input type="date" name="start"></label>
+            <label class="field"><span data-i18n="filter.to_date">To</span><input type="date" name="end"></label>
+            <label class="field"><span data-i18n="filter.time_from">Time from</span><input type="time" name="time_from"></label>
+            <label class="field"><span data-i18n="filter.time_to">Time to</span><input type="time" name="time_to"></label>
+            <label class="field"><span data-i18n="filter.person">Person</span><select name="person_id"></select></label>
+            <label class="field"><span data-i18n="filter.status">Status</span><select name="status">
+              <option value="" data-i18n="status.all">All</option>
+              <option value="known" data-i18n="status.known">Recognized</option>
+              <option value="unknown" data-i18n="status.unknown">Unknown</option>
+              <option value="labeled" data-i18n="status.labeled">Identified later</option>
+              <option value="watchlist" data-i18n="status.watchlist">Watchlist</option></select></label>
+            <div class="grow"></div>
+            <button><svg class="icon"><use href="#i-search"/></svg><span data-i18n="filter.apply">Apply</span></button>
+            <a id="sightings-csv" class="btn secondary" href="/api/sightings.csv"><svg class="icon"><use href="#i-download"/></svg><span data-i18n="filter.export">Export CSV</span></a>
+          </form>
+        </div></div>
+        <div class="card"><div class="card-h"><h2 data-i18n="sightings.chart">Sightings — last 14 days</h2>
+          <div class="legend"><span><i class="sw-ok"></i><span data-i18n="sightings.legend_known">Recognized</span></span><span><i class="sw-bad"></i><span data-i18n="sightings.legend_other">Unknown / watchlist</span></span></div></div>
+          <div class="card-b"><div id="sightings-stats" class="bars"></div></div></div>
+        <div class="card"><div class="card-h"><h2 data-i18n="search.title">Search by face</h2></div>
+          <div class="card-b">
+            <!-- Face search: drag-and-drop or file picker; submitted as multipart "file" to
+                 POST /api/search/face with the date/time filters above. Results go to #search-results. -->
+            <form id="face-search" class="drop">
+              <svg class="icon icon-xl"><use href="#i-search"/></svg>
+              <div class="grow"><strong data-i18n="search.drop">Drop a photo or choose a file</strong>
+                <div class="muted" data-i18n="search.hint">The photo is only used for the search and is never stored. The date and time filters above apply.</div></div>
+              <input type="file" name="file" accept="image/*" required>
+              <button data-i18n="search.run">Search history</button>
+            </form>
+            <div id="search-results" class="grid tight mt"></div>
+          </div></div>
+        <div class="card"><div class="card-b flush table-wrap">
+          <table class="data"><thead><tr>
+            <th data-i18n="col.date">Date</th><th data-i18n="col.time">Time</th><th data-i18n="col.face">Face</th>
+            <th data-i18n="col.identity">Identity</th><th data-i18n="col.status">Status</th><th data-i18n="col.score">Score</th><th data-i18n="col.track">Track</th>
+          </tr></thead><tbody id="sightings"></tbody></table>
+          <div class="pager"><button id="more-sightings" class="secondary" data-i18n="common.older">Load older</button></div>
+        </div></div>
+      </div>
+
+      <!-- ------------------------------------------------------ RECORDINGS -->
+      <!-- Recordings: shared filter, then two tabs (data-rec-tab="clips" | "timelapse") that toggle
+           #rec-clips and #rec-timelapse. Clips open in #clip-dialog. -->
+      <div class="page" id="page-recordings" hidden>
+        <div class="card"><div class="card-b">
+          <!-- Shared filter: period + daily time window, used by both the clip list and the time-lapse. -->
+          <form id="rec-filter" class="toolbar">
+            <label class="field"><span data-i18n="filter.from_date">From</span><input type="date" name="start"></label>
+            <label class="field"><span data-i18n="filter.to_date">To</span><input type="date" name="end"></label>
+            <label class="field"><span data-i18n="filter.time_from">Time from</span><input type="time" name="time_from"></label>
+            <label class="field"><span data-i18n="filter.time_to">Time to</span><input type="time" name="time_to"></label>
+            <label class="field"><span data-i18n="filter.person">Person</span><select name="person_id"></select></label>
+            <label class="field"><span data-i18n="rec.trigger">Trigger</span><select name="trigger">
+              <option value="" data-i18n="status.all">All</option>
+              <option value="known" data-i18n="choice.known">Recognized person</option>
+              <option value="unknown" data-i18n="choice.unknown">Unknown person</option>
+              <option value="watchlist" data-i18n="choice.watchlist">Watchlist person</option>
+              <option value="person" data-i18n="choice.person">Any person</option></select></label>
+            <div class="grow"></div>
+            <button><svg class="icon"><use href="#i-search"/></svg><span data-i18n="filter.apply">Apply</span></button>
+          </form>
+        </div></div>
+        <div class="tabs"><button class="tab-btn active" data-rec-tab="clips" data-i18n="rec.tab_clips">Event clips</button>
+          <button class="tab-btn" data-rec-tab="timelapse" data-i18n="rec.tab_timelapse">Time-lapse</button></div>
+        <div id="rec-clips"><div id="clips" class="grid tight mt"></div>
+          <div class="pager"><button id="more-clips" class="secondary" data-i18n="common.older">Load older</button></div></div>
+        <!-- Time-lapse player: #tl-img shows one snapshot at a time, #tl-seek scrubs, #tl-speed is
+             the playback rate in frames per second (also used as fps of the MP4 export link). -->
+        <div id="rec-timelapse" class="card mt" hidden>
+          <div class="card-h"><h2 id="tl-title" data-i18n="rec.tab_timelapse">Time-lapse</h2>
+            <a id="tl-export" class="btn secondary small" href="#"><svg class="icon"><use href="#i-download"/></svg><span data-i18n="tl.export">Export MP4</span></a></div>
+          <div class="card-b stack">
+            <div class="stream-wrap"><img id="tl-img" alt=""><span id="tl-stamp" class="live-badge tl-stamp"></span></div>
+            <div class="toolbar">
+              <button id="tl-play" class="icon-only" title="Play"><svg class="icon"><use href="#i-play"/></svg></button>
+              <input id="tl-seek" class="grow tl-seek" type="range" min="0" max="0" value="0">
+              <label class="field"><span data-i18n="tl.speed">Speed</span><select id="tl-speed">
+                <option value="4">4 fps</option><option value="10" selected>10 fps</option><option value="24">24 fps</option>
+                <option value="48">48 fps</option></select></label>
+              <span id="tl-count" class="muted"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------------------------------------------------------- PEOPLE -->
+      <!-- People: "add person" form (POST /api/persons) and the grid of person cards (#persons),
+           each built by app.js personCard() with faces, voice, access switches and rules. -->
+      <div class="page" id="page-people" hidden>
+        <div class="card"><div class="card-b">
+          <form id="person-form" class="toolbar">
+            <label class="field"><span data-i18n="people.first_name">First name</span><input name="first_name" required></label>
+            <label class="field"><span data-i18n="people.last_name">Last name</span><input name="last_name"></label>
+            <label class="check h36"><input type="checkbox" name="can_open_garage"><span data-i18n="people.can_open">May open the garage</span></label>
+            <div class="grow"></div>
+            <button><svg class="icon"><use href="#i-plus"/></svg><span data-i18n="people.add">Add person</span></button>
+          </form>
+        </div></div>
+        <div id="persons" class="grid"></div>
+      </div>
+
+      <!-- -------------------------------------------------------- VISITORS -->
+      <!-- Visitors: clusters of unrecognized faces (#unknowns), each with an "assign to person"
+           select and a delete button, built by app.js loadUnknowns(). -->
+      <div class="page" id="page-visitors" hidden>
+        <p class="muted" data-i18n="visitors.hint">Unrecognized visitors, grouped automatically when the same face comes back. Assigning a group to a person also identifies all of their past sightings.</p>
+        <div id="unknowns" class="grid tight"></div>
+      </div>
+
+      <!-- ---------------------------------------------------------- EVENTS -->
+      <!-- Events: full event log with filters (GET /api/events). The type field suggests the known
+           event types through <datalist id="event-types">, filled by app.js fillEventTypes(). -->
+      <!-- ------------------------------------------------------------ VEHICLES -->
+      <!-- Vehicles: registry of the license plates allowed to open the garage (GET/POST/PATCH/DELETE
+           /api/plates, every change audited with its diff) and history of the confirmed plate reads
+           (GET /api/plate-reads) with the vehicle snapshot, direction and action taken. The notice
+           appears while plate recognition is disabled in Settings > License plates. -->
+      <div class="page" id="page-vehicles" hidden>
+        <div id="plates-disabled" class="banner warn" hidden>
+          <span class="grow" data-i18n="plates.disabled">License plate recognition is disabled: enable it in Settings &gt; License plates, then run "jarvis setup-models".</span>
+        </div>
+        <div class="card">
+          <div class="card-h"><h2 data-i18n="plates.registry">Registered plates</h2>
+            <span class="muted" data-i18n="plates.registry_hint">A known plate on an approaching vehicle opens the garage (door sensor required).</span></div>
+          <div class="card-b">
+            <form id="plate-form" class="toolbar">
+              <label class="field"><span data-i18n="plates.plate">Plate</span><input name="plate" required maxlength="24" placeholder="AB-123-CD" autocomplete="off"></label>
+              <label class="field"><span data-i18n="plates.country">Country</span><input name="country" maxlength="40" list="plate-countries"></label>
+              <datalist id="plate-countries"></datalist>
+              <label class="field"><span data-i18n="plates.label">Label</span><input name="label" maxlength="80" data-i18n-placeholder="plates.label_ph" placeholder="e.g. grey Clio"></label>
+              <label class="field"><span data-i18n="col.person">Person</span><select name="person_id" id="plate-person"></select></label>
+              <label class="field"><span data-i18n="rules.until">Valid until</span><input type="date" name="valid_until"></label>
+              <button><svg class="icon"><use href="#i-plus"/></svg><span data-i18n="plates.add">Add</span></button>
+            </form>
+          </div>
+          <div class="card-b flush table-wrap">
+            <table class="data"><thead><tr><th data-i18n="plates.plate">Plate</th><th data-i18n="plates.country">Country</th>
+              <th data-i18n="plates.label">Label</th><th data-i18n="col.person">Person</th><th data-i18n="plates.status">Status</th>
+              <th data-i18n="plates.last_read">Last read</th><th></th></tr></thead>
+              <tbody id="plates"></tbody></table>
+          </div>
+        </div>
+        <div class="card mt">
+          <div class="card-h"><h2 data-i18n="plates.reads">Plate reads</h2></div>
+          <div class="card-b">
+            <form id="plate-reads-filter" class="toolbar">
+              <label class="field"><span data-i18n="filter.from_date">From</span><input type="date" name="start"></label>
+              <label class="field"><span data-i18n="filter.to_date">To</span><input type="date" name="end"></label>
+              <label class="field"><span data-i18n="filter.time_from">Time from</span><input type="time" name="time_from"></label>
+              <label class="field"><span data-i18n="filter.time_to">Time to</span><input type="time" name="time_to"></label>
+              <label class="field"><span data-i18n="plates.plate">Plate</span><input name="plate" maxlength="24"></label>
+              <label class="field"><span data-i18n="plates.status">Status</span>
+                <select name="status"><option value="" data-i18n="logs.all">All</option><option value="known" data-i18n="plates.st_known">Known</option>
+                  <option value="unknown" data-i18n="plates.st_unknown">Unknown</option><option value="disabled" data-i18n="plates.st_disabled">Disabled</option>
+                  <option value="expired" data-i18n="plates.st_expired">Expired</option></select></label>
+              <div class="grow"></div>
+              <button><svg class="icon"><use href="#i-search"/></svg><span data-i18n="filter.apply">Apply</span></button>
+            </form>
+          </div>
+          <div class="card-b flush table-wrap">
+            <table class="data"><thead><tr><th></th><th data-i18n="col.datetime">Date &amp; time</th><th data-i18n="plates.plate">Plate</th>
+              <th data-i18n="plates.status">Status</th><th data-i18n="plates.direction">Direction</th><th data-i18n="plates.action">Action</th>
+              <th data-i18n="plates.confidence">Confidence</th><th data-i18n="plates.region">Region</th><th data-i18n="col.person">Person</th></tr></thead>
+              <tbody id="plate-reads"></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-events" hidden>
+        <div class="card"><div class="card-b">
+          <form id="events-filter" class="toolbar">
+            <label class="field"><span data-i18n="filter.from_date">From</span><input type="date" name="start"></label>
+            <label class="field"><span data-i18n="filter.to_date">To</span><input type="date" name="end"></label>
+            <label class="field"><span data-i18n="filter.time_from">Time from</span><input type="time" name="time_from"></label>
+            <label class="field"><span data-i18n="filter.time_to">Time to</span><input type="time" name="time_to"></label>
+            <label class="field"><span data-i18n="filter.type">Type</span><input name="type" list="event-types" placeholder="garage_pulse"></label>
+            <datalist id="event-types"></datalist>
+            <div class="grow"></div>
+            <button><svg class="icon"><use href="#i-search"/></svg><span data-i18n="filter.apply">Apply</span></button>
+          </form>
+        </div></div>
+        <div class="card"><div class="card-b flush table-wrap">
+          <table class="data"><thead><tr><th data-i18n="col.datetime">Date &amp; time</th><th data-i18n="col.type">Type</th>
+            <th data-i18n="col.actor">Actor</th><th data-i18n="col.person">Person</th><th data-i18n="col.details">Details</th></tr></thead>
+            <tbody id="events"></tbody></table>
+          <div class="pager"><button id="more-events" class="secondary" data-i18n="common.older">Load older</button></div>
+        </div></div>
+      </div>
+
+      <!-- ----------------------------------------------------------- AUDIT -->
+      <!-- Audit: two tabs (data-audit-tab="actions" | "sessions"). Actions = administrative trail
+           with filters, CSV export, hash-chain verification banner (#verify-banner) and the
+           before/after diff column; Sessions = active and ended sessions with revoke buttons. -->
+      <div class="page" id="page-audit" hidden>
+        <div class="tabs"><button class="tab-btn active" data-audit-tab="actions" data-i18n="audit.tab_actions">Administrative actions</button>
+          <button class="tab-btn" data-audit-tab="sessions" data-i18n="audit.tab_sessions">Sessions</button></div>
+        <div id="audit-actions">
+          <div id="verify-banner" class="banner" hidden></div>
+          <div class="card"><div class="card-b">
+            <form id="audit-filter" class="toolbar">
+              <label class="field"><span data-i18n="filter.from_date">From</span><input type="date" name="start"></label>
+              <label class="field"><span data-i18n="filter.to_date">To</span><input type="date" name="end"></label>
+              <label class="field"><span data-i18n="filter.time_from">Time from</span><input type="time" name="time_from"></label>
+              <label class="field"><span data-i18n="filter.time_to">Time to</span><input type="time" name="time_to"></label>
+              <label class="field"><span data-i18n="filter.user">User</span><input name="actor"></label>
+              <label class="field"><span data-i18n="filter.action">Action</span><input name="type" list="event-types"></label>
+              <div class="grow"></div>
+              <button><svg class="icon"><use href="#i-search"/></svg><span data-i18n="filter.apply">Apply</span></button>
+              <a id="audit-csv" class="btn secondary" href="/api/audit.csv"><svg class="icon"><use href="#i-download"/></svg><span data-i18n="filter.export">Export CSV</span></a>
+              <!-- type="button": this button sits inside the filter form but must not submit it. -->
+              <button type="button" id="verify-btn" class="secondary"><svg class="icon"><use href="#i-shield"/></svg><span data-i18n="audit.verify">Verify integrity</span></button>
+            </form>
+          </div></div>
+          <div class="card mt"><div class="card-b flush table-wrap">
+            <table class="data"><thead><tr><th data-i18n="col.datetime">Date &amp; time</th><th data-i18n="col.user">User</th>
+              <th data-i18n="col.ip">Source IP</th><th data-i18n="col.action">Action</th><th data-i18n="col.target">Target</th>
+              <th data-i18n="col.changes">Changes</th></tr></thead><tbody id="audit"></tbody></table>
+            <div class="pager"><button id="more-audit" class="secondary" data-i18n="common.older">Load older</button></div>
+          </div></div>
+        </div>
+        <div id="audit-sessions" hidden>
+          <div class="card"><div class="card-b flush table-wrap">
+            <table class="data"><thead><tr><th data-i18n="col.user">User</th><th data-i18n="col.ip">Source IP</th>
+              <th data-i18n="col.browser">Browser</th><th data-i18n="col.login">Signed in</th><th data-i18n="col.activity">Last activity</th>
+              <th data-i18n="col.logout">Signed out</th><th data-i18n="col.reason">Reason</th><th data-i18n="col.duration">Duration</th><th></th></tr></thead>
+              <tbody id="sessions"></tbody></table>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- -------------------------------------------------------- SETTINGS -->
+      <!-- Settings: restart banner (shown when cold settings changed), group navigation
+           (#settings-nav) and parameters (#settings-groups) rendered from GET /api/settings,
+           the monitoring card (only for the monitoring group) and the sticky save bar. -->
+      <!-- ------------------------------------------------------------ LOGS -->
+      <!-- Logs: search in /var/log/jarvis/jarvis.log (GET /api/logs: text or regular expression,
+           minimum level, process, date-time range, rotated files) and live tail (GET
+           /api/logs/stream, Server-Sent Events) with the same filters. Secrets are masked by the
+           server. The list keeps at most 2000 entries; "Download" saves what is displayed. -->
+      <div class="page" id="page-logs" hidden>
+        <div class="card"><div class="card-b">
+          <form id="logs-filter" class="toolbar">
+            <label class="field grow"><span data-i18n="logs.search">Search</span><input name="q" maxlength="200" data-i18n-placeholder="logs.search_ph" placeholder="text, logger or message"></label>
+            <label class="check"><input type="checkbox" name="regex"> <span data-i18n="logs.regex">Regular expression</span></label>
+            <label class="field"><span data-i18n="logs.level">Minimum level</span>
+              <select name="level"><option value="DEBUG">DEBUG</option><option value="INFO" selected>INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option><option value="CRITICAL">CRITICAL</option></select></label>
+            <label class="field"><span data-i18n="logs.process">Process</span>
+              <select name="process"><option value="" data-i18n="logs.all">All</option><option value="core">core</option><option value="api">api</option><option value="console">console</option></select></label>
+            <label class="field"><span data-i18n="filter.from_date">From</span><input type="datetime-local" name="start"></label>
+            <label class="field"><span data-i18n="filter.to_date">To</span><input type="datetime-local" name="end"></label>
+            <label class="check"><input type="checkbox" name="history"> <span data-i18n="logs.history">Include rotated files</span></label>
+            <button><svg class="icon"><use href="#i-search"/></svg><span data-i18n="filter.apply">Apply</span></button>
+          </form>
+          <div class="toolbar mt">
+            <button id="logs-live" class="secondary"><span class="live-dot"></span><span id="logs-live-label" data-i18n="logs.live_start">Follow live</span></button>
+            <label class="check"><input type="checkbox" id="logs-autoscroll" checked> <span data-i18n="logs.autoscroll">Auto-scroll</span></label>
+            <label class="check"><input type="checkbox" id="logs-wrap"> <span data-i18n="logs.wrap">Wrap lines</span></label>
+            <div class="grow"></div>
+            <span id="logs-count" class="muted"></span>
+            <button id="logs-clear" class="secondary" data-i18n="logs.clear">Clear</button>
+            <button id="logs-download" class="secondary"><svg class="icon"><use href="#i-download"/></svg><span data-i18n="logs.download">Download</span></button>
+          </div>
+        </div></div>
+        <div id="logs-output" class="log-view mt" role="log" aria-live="off"></div>
+      </div>
+
+      <div class="page" id="page-settings" hidden>
+        <div id="restart-banner" class="banner warn" hidden>
+          <span class="grow" data-i18n="settings.restart_needed">Some changes take effect after a service restart.</span>
+          <button id="restart-core" class="secondary" data-i18n="settings.restart_now">Restart now</button>
+        </div>
+        <div class="settings">
+          <nav id="settings-nav"></nav>
+          <div>
+            <div id="settings-groups"></div>
+            <!-- Camera stream card, shown with the "Camera stream" settings group (app.js cameraCard()):
+                 - live preview: the MJPEG stream of the core with the analysis overlay (person boxes,
+                   track IDs, names), src set only while the card is visible;
+                 - analysis indicators from GET /api/status, refreshed every 2 s while visible;
+                 - stream test: POST /api/camera/probe on the URL being edited (or the saved one). -->
+            <div id="camera-card" class="card mt" hidden>
+              <div class="card-h"><h2 data-i18n="camera.preview_title">Live preview and analysis</h2>
+                <span class="muted" data-i18n="camera.preview_hint">Boxes, track numbers and names are drawn by the analysis in progress.</span></div>
+              <div class="card-b camera-grid">
+                <div class="stream-box"><img id="settings-stream" alt="" data-i18n-alt="camera.preview_alt">
+                  <p id="settings-stream-empty" class="muted" hidden data-i18n="camera.no_frame">No image yet: the core is starting, or the camera is unreachable.</p></div>
+                <div class="stack">
+                  <div class="kpis" id="camera-kpis"></div>
+                  <form id="probe-form" class="stack">
+                    <label class="field"><span data-i18n="camera.probe_url">Stream to test</span>
+                      <input id="probe-url" name="url" placeholder="rtsp://192.168.50.64:554/…" autocomplete="off"></label>
+                    <div class="toolbar"><button id="probe-btn"><svg class="icon"><use href="#i-video"/></svg><span data-i18n="camera.probe">Test the stream</span></button>
+                      <span class="muted" data-i18n="camera.probe_hint">Uses the camera account of the Secrets; takes up to 15 s.</span></div>
+                  </form>
+                  <div id="probe-result" hidden></div>
+                </div>
+              </div>
+            </div>
+            <div id="monitoring-card" class="card mt" hidden>
+              <div class="card-h"><h2 data-i18n="monitoring.title">Monitoring access</h2></div>
+              <div class="card-b stack">
+                <p class="muted" data-i18n="monitoring.hint">Prometheus scrapes /metrics over HTTPS with this bearer token. Local scrapers on 127.0.0.1:8000 need no token.</p>
+                <!-- Metrics bearer token, masked by default; the clear value is kept in data-token by app.js. -->
+                <div class="secret" id="metrics-token">••••••••</div>
+                <div class="toolbar"><button id="token-show" class="secondary" data-i18n="monitoring.show">Show</button>
+                  <button id="token-rotate" class="secondary" data-i18n="monitoring.rotate">Generate a new token</button>
+                  <button id="monitoring-apply" class="secondary" data-i18n="monitoring.apply">Re-apply agents</button></div>
+                <div id="monitoring-status" class="muted"></div>
+              </div>
+            </div>
+            <!-- Save bar: sticky at the bottom of the viewport while there are unsaved edits (#dirty-count);
+                 Save sends all of them in one PUT /api/settings. -->
+            <div id="savebar" class="savebar" hidden>
+              <span class="grow" id="dirty-count"></span>
+              <button id="settings-cancel" class="secondary" data-i18n="common.cancel">Cancel</button>
+              <button id="settings-save" data-i18n="common.save">Save changes</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</section>
+
+<!-- Password change dialog (POST /api/account/password), in two modes set by app.js:
+     - forced: after the first sign-in with the factory account admin/admin or after a reset
+       (must_change_password). The server answers 403 to every other API until the change, so
+       the dialog cannot be dismissed (Escape is ignored) and its secondary button signs out;
+     - voluntary: opened from the user menu; the secondary button just closes it.
+     The rule checklist mirrors the server policy (jarvis/web/app.py change_password) and is
+     updated while typing; the server remains the authority and its message is shown on 422. -->
+<dialog id="password-dialog" class="password-dialog" aria-labelledby="password-title">
+  <form id="password-form" autocomplete="off">
+    <h2 id="password-title"><svg class="icon"><use href="#i-shield"/></svg> <span data-i18n="password.title">Change your password</span></h2>
+    <p id="password-forced" class="notice" hidden data-i18n="password.forced">The initial password must be replaced before you can use Jarvis.</p>
+    <!-- Hidden user name field: lets password managers associate the new password with the account. -->
+    <input id="password-user" name="username" autocomplete="username" hidden>
+    <label class="field"><span data-i18n="password.current">Current password</span>
+      <input name="current_password" type="password" autocomplete="current-password" required maxlength="256"></label>
+    <label class="field"><span data-i18n="password.new">New password</span>
+      <input name="new_password" type="password" autocomplete="new-password" required minlength="12" maxlength="256"></label>
+    <label class="field"><span data-i18n="password.confirm">Confirm the new password</span>
+      <input name="confirm_password" type="password" autocomplete="new-password" required minlength="12" maxlength="256"></label>
+    <!-- Live policy checklist: app.js toggles .ok on each item. -->
+    <ul id="password-rules" class="pw-rules">
+      <li data-rule="length" data-i18n="password.rule_length">At least 12 characters</li>
+      <li data-rule="distinct" data-i18n="password.rule_distinct">At least 5 different characters</li>
+      <li data-rule="common" data-i18n="password.rule_common">Not the user name or a default word (admin, password, jarvis)</li>
+      <li data-rule="changed" data-i18n="password.rule_changed">Different from the current password</li>
+      <li data-rule="match" data-i18n="password.rule_match">Both new passwords match</li>
+    </ul>
+    <p id="password-error" class="error" role="alert"></p>
+    <div class="dialog-actions">
+      <button type="button" id="password-secondary" class="secondary" data-i18n="common.cancel">Cancel</button>
+      <button type="submit" id="password-submit" data-i18n="password.submit">Change password</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Voice enrollment dialog: modal shown by app.js recordVoice() during the 10-second
+     microphone recording; #record-status shows the countdown, Cancel discards the sample. -->
+<dialog id="record-dialog">
+  <h2><span class="rec-dot"></span> <span data-i18n="voice.recording">Recording</span></h2>
+  <p data-i18n="voice.instructions">Read a natural sentence for 10 seconds, in a quiet place.</p>
+  <p id="record-status" class="muted"></p>
+  <button id="record-cancel" class="secondary" data-i18n="common.cancel">Cancel</button>
+</dialog>
+
+<!-- Clip player (event recordings): modal <dialog>; the <video> source is
+     /api/recordings/{id}/video (Range requests supported, so seeking works). preload="metadata"
+     avoids downloading the clip before playback; app.js clears the source when it closes. -->
+<dialog id="clip-dialog" class="clip-dialog">
+  <div class="card-h"><h2 id="clip-title"></h2><button id="clip-close" class="ghost icon-only" aria-label="Close">×</button></div>
+  <video id="clip-video" controls preload="metadata"></video>
+  <p id="clip-meta" class="muted"></p>
+</dialog>
+
+<!-- Toast notifications container (app.js toast()); aria-live announces new messages. -->
+<div id="toasts" class="toast-host" aria-live="polite"></div>
+<!-- The only script: external file, loaded last so the DOM exists when it runs (CSP script-src 'self'). -->
+<script src="app.js"></script>
+</body>
+</html>

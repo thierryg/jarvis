@@ -1,0 +1,88 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/base/tasks/main.yml
+# Purpose : Base system: updates, packages, host name, mDNS, time zone and clock
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+- name: Refresh the package index
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Apply the pending updates
+  ansible.builtin.apt:
+    upgrade: dist
+    autoremove: true
+  when: jarvis_upgrade_packages | bool
+
+- name: Install the runtime and build packages
+  ansible.builtin.apt:
+    name:
+      # Build toolchain (insightface is compiled from source) and Python headers.
+      - build-essential
+      - python3-dev
+      # Media, web front, TLS and tooling used by the scripts and checks.
+      - ffmpeg
+      - nginx
+      - openssl
+      - curl
+      - ca-certificates
+      - rsync
+      - acl
+      - jq
+      - sqlite3
+      - iproute2
+      # Audio and OpenCV runtime libraries.
+      - libportaudio2
+      - libasound2-plugins
+      - alsa-utils
+      - libgl1
+      - libgomp1
+      # Intel GPU: VAAPI drivers (i965 for Haswell / Gen7.5, iHD for Gen8+) and vainfo.
+      - i965-va-driver
+      - intel-media-va-driver
+      - vainfo
+    state: present
+    install_recommends: false
+
+- name: Install the mDNS responder (<hostname>.local on the LAN)
+  ansible.builtin.apt:
+    name: [avahi-daemon, libnss-mdns]
+    state: present
+    install_recommends: false
+  when: jarvis_mdns | bool
+
+- name: Set the host name
+  ansible.builtin.hostname:
+    name: "{{ jarvis_hostname }}"
+  when: not jarvis_in_container
+
+- name: Map the host name to the loopback address
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ jarvis_hostname }}.local {{ jarvis_hostname }}"
+    unsafe_writes: "{{ jarvis_in_container }}"
+
+- name: Set the time zone
+  community.general.timezone:
+    name: "{{ jarvis_timezone }}"
+
+- name: Keep the clock synchronized (certificates, audit timestamps)
+  ansible.builtin.systemd_service:
+    name: systemd-timesyncd
+    enabled: true
+    state: started
+  failed_when: false
+  when: not jarvis_in_container
+
+- name: Create the Jarvis cache directory for downloads
+  ansible.builtin.file:
+    path: /var/cache/jarvis
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"

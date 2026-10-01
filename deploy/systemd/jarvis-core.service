@@ -1,0 +1,106 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis-core.service
+# Purpose : systemd unit for the core service (vision, voice, decision, relay)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis-core.service
+# Core service: vision (PTZ camera, YOLO, faces), voice (microphone, Vosk, Piper), decision, relay.
+# This is the only process that owns the hardware and the models. It is controlled through the
+# Unix socket /run/jarvis/core.sock.
+[Unit]
+Description=Jarvis core (vision, voice, decision, relay)
+Documentation=file:///opt/jarvis/src/docs/SOFTWARE.md
+After=network-online.target sound.target systemd-udev-settle.service
+Wants=network-online.target
+PartOf=jarvis.target
+# 5 failures within 10 minutes: systemd gives up (avoids a restart loop on a persistent fault).
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+# Per-service resource accounting (systemctl status, MOTD, jarvis resources): CPU time, memory,
+# block I/O and network bytes of this unit's cgroup. Cheap on cgroup v2 (eBPF for IP counters).
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+IPAccounting=yes
+# Type=notify: the core sends READY=1 once the models are loaded, then keeps sending WATCHDOG=1
+# heartbeats as long as its critical threads and the vision loop are alive (otherwise systemd
+# kills and restarts it after WatchdogSec).
+Type=notify
+NotifyAccess=main
+WatchdogSec=60
+# Generous start timeout: loading the vision and speech models can take a while on a mini-PC.
+TimeoutStartSec=180
+TimeoutStopSec=20
+User=jarvis
+Group=jarvis
+# Groups granting access to audio, serial relay/sensor, HID relay, camera and GPU (VAAPI) devices.
+SupplementaryGroups=audio dialout plugdev video render
+EnvironmentFile=/etc/jarvis/jarvis.env
+Environment=JARVIS_CONFIG=/etc/jarvis/config.yaml PYTHONUNBUFFERED=1 HOME=/var/lib/jarvis
+Environment=YOLO_CONFIG_DIR=/var/lib/jarvis/.config/Ultralytics OMP_NUM_THREADS=3
+# Refuse to start on an invalid configuration (fails fast with a clear message in the journal).
+ExecStartPre=/opt/jarvis/venv/bin/jarvis check-config core
+ExecStart=/opt/jarvis/venv/bin/jarvis core
+Restart=always
+RestartSec=5
+# mixed: SIGTERM goes to the main process only; it stops its threads and closes the FFmpeg
+# encoders cleanly (finalized MP4 clips) before systemd sends SIGKILL to whatever remains.
+KillMode=mixed
+UMask=0027
+
+# Priority and resources: vision and voice must stay responsive without starving the system.
+# OOMScoreAdjust makes the kernel OOM killer pick other processes first.
+Nice=-5
+CPUWeight=200
+IOWeight=200
+MemoryHigh=3G
+MemoryMax=4G
+OOMScoreAdjust=-500
+
+# Devices: closed allow-list (microphone/speaker, USB-serial relay and door sensor, HID relay,
+# GPIO, VAAPI hardware video decoding). Everything else under /dev is denied.
+DevicePolicy=closed
+DeviceAllow=char-alsa rw
+DeviceAllow=char-ttyUSB rw
+DeviceAllow=char-ttyACM rw
+DeviceAllow=char-ttyS rw
+DeviceAllow=char-hidraw rw
+DeviceAllow=char-gpiochip rw
+DeviceAllow=char-drm rw
+
+# Hardening. OpenVINO JIT-compiles kernels at runtime, so MemoryDenyWriteExecute is deliberately
+# omitted here (it would break inference).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/jarvis /run/jarvis /var/log/jarvis
+# /var/log/jarvis: shared file log (rotated by the core)
+LogsDirectory=jarvis
+LogsDirectoryMode=0750
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+# AF_NETLINK: needed for kernel netlink queries (network interfaces, udev device events).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=jarvis.target

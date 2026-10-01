@@ -1,0 +1,17 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/.ansible-lint
+# Purpose : ansible-lint settings (production profile)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+profile: production
+exclude_paths:
+  - collections/
+  - .cache/
+  - tests/
+# Variables are global to the project (group_vars/all/main.yml), all prefixed "jarvis_".
+skip_list:
+  - var-naming[no-role-prefix]

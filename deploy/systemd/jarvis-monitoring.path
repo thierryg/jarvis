@@ -1,0 +1,21 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis-monitoring.path
+# Purpose : Watches desired.json and triggers jarvis-monitoring-apply.service
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis-monitoring.path
+# Watches the desired monitoring state written by the (unprivileged) API and triggers a minimal
+# root service to apply it (privilege separation: the API never runs anything as root itself).
+[Unit]
+Description=Jarvis: watch monitoring settings
+
+[Path]
+PathChanged=/var/lib/jarvis/monitoring/desired.json
+Unit=jarvis-monitoring-apply.service
+
+[Install]
+WantedBy=jarvis.target

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/bin/jarvis
+# Purpose : Administration shell / commands of Jarvis, available in the PATH
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Installed as /usr/local/bin/jarvis. Runs the command as the « jarvis » service account so that the
+# database, logs and media keep their owner (root can run any command; others go through sudo).
+#   jarvis                 interactive administration shell (cmd2)
+#   jarvis <command> ...   single command, e.g. « jarvis resources --watch 2 », « jarvis reset-admin »
+#
+# Environment: JARVIS_BIN (default /opt/jarvis/venv/bin/jarvis), JARVIS_CONFIG (/etc/jarvis/config.yaml).
+# Exit codes: the exit code of the jarvis command itself (0 success, 2 usage error, ...), or
+#   4  jarvis is not installed (JARVIS_BIN not executable) / library missing
+#   3  sudo to the jarvis account refused
+# Shared library: installed copy first, then the repository checkout.
+for _lib in /usr/local/lib/jarvis/jarvis-common.sh "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/../../scripts/lib/jarvis-common.sh"; do
+  # shellcheck source=../../scripts/lib/jarvis-common.sh
+  [[ -r "$_lib" ]] && { . "$_lib"; break; }
+done
+[[ -n "${_JARVIS_COMMON_SH:-}" ]] || { echo "$(basename -- "$0"): jarvis-common.sh library not found" >&2; exit 4; }
+
+JARVIS_BIN="${JARVIS_BIN:-/opt/jarvis/venv/bin/jarvis}"
+export JARVIS_CONFIG="${JARVIS_CONFIG:-/etc/jarvis/config.yaml}"
+
+# main ARGS...: run the command as the jarvis service account.
+main() {
+  [[ -x "$JARVIS_BIN" ]] || die "jarvis is not installed ($JARVIS_BIN missing): run scripts/jarvis-install.sh" "$E_DEPS"
+  id jarvis &>/dev/null || die "service account 'jarvis' does not exist: run scripts/jarvis-install.sh" "$E_DEPS"
+  if [[ "$(id -un)" == "jarvis" ]]; then
+    exec "$JARVIS_BIN" "$@"
+  fi
+  sudo -n true 2>/dev/null || [[ $EUID -eq 0 ]] || log_info "sudo is needed to run as the jarvis account"
+  exec sudo -u jarvis -H --preserve-env=JARVIS_CONFIG,NO_COLOR "$JARVIS_BIN" "$@"
+}
+
+main "$@"

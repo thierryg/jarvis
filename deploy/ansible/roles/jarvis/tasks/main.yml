@@ -1,0 +1,299 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/jarvis/tasks/main.yml
+# Purpose : Jarvis application: account, directories, Python environment, configuration, units, commands
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# --- service account and directories -------------------------------------------------------
+- name: Create the jarvis system account
+  ansible.builtin.user:
+    name: jarvis
+    system: true
+    home: /var/lib/jarvis
+    create_home: false
+    shell: /usr/sbin/nologin
+    password: "!"
+
+- name: List the device groups present on this system
+  ansible.builtin.getent:
+    database: group
+
+# audio: microphone/speaker; dialout: USB-serial relay and door sensor; plugdev: HID relay;
+# video/render: VAAPI decoding and OpenVINO on the Intel GPU.
+- name: Give the jarvis account access to its devices
+  ansible.builtin.user:
+    name: jarvis
+    groups: "{{ ['audio', 'dialout', 'plugdev', 'video', 'render'] | select('in', ansible_facts.getent_group) | list }}"
+    append: true
+
+- name: Create the Jarvis directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('jarvis') }}"
+    group: "{{ item.group | default('jarvis') }}"
+    mode: "{{ item.mode | default('0750') }}"
+  loop:
+    - { path: /var/lib/jarvis }
+    - { path: /var/lib/jarvis/models }
+    - { path: /var/lib/jarvis/faces }
+    - { path: /var/lib/jarvis/unknown }
+    - { path: /var/lib/jarvis/voice }
+    - { path: /var/lib/jarvis/sightings }
+    - { path: /var/lib/jarvis/tmp }
+    - { path: /var/lib/jarvis/monitoring }
+    - { path: /var/log/jarvis }
+    - { path: /var/backups/jarvis, mode: "0700" }
+    - { path: /etc/jarvis, owner: root, mode: "0750" }
+    - { path: "{{ jarvis_prefix }}", owner: root, group: root, mode: "0755" }
+    - { path: /usr/local/lib/jarvis, owner: root, group: root, mode: "0755" }
+  loop_control:
+    label: "{{ item.path }}"
+
+# --- uv (pinned release, checksum verified) ----------------------------------------------------
+- name: Download uv {{ jarvis_uv_version }}
+  ansible.builtin.get_url:
+    url: "https://github.com/astral-sh/uv/releases/download/{{ jarvis_uv_version }}/uv-x86_64-unknown-linux-gnu.tar.gz"
+    checksum: "sha256:https://github.com/astral-sh/uv/releases/download/{{ jarvis_uv_version }}/uv-x86_64-unknown-linux-gnu.tar.gz.sha256"
+    dest: "/var/cache/jarvis/uv-{{ jarvis_uv_version }}.tar.gz"
+    mode: "0644"
+
+- name: Unpack uv (once per version)
+  ansible.builtin.unarchive:
+    src: "/var/cache/jarvis/uv-{{ jarvis_uv_version }}.tar.gz"
+    dest: "{{ jarvis_prefix }}"
+    remote_src: true
+    creates: "{{ jarvis_prefix }}/.uv-{{ jarvis_uv_version }}"
+
+- name: Mark the installed uv version
+  ansible.builtin.copy:
+    dest: "{{ jarvis_prefix }}/.uv-{{ jarvis_uv_version }}"
+    content: "{{ jarvis_uv_version }}\n"
+    mode: "0644"
+
+- name: Put uv in the PATH
+  ansible.builtin.file:
+    src: "{{ jarvis_prefix }}/uv-x86_64-unknown-linux-gnu/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+  loop: [uv, uvx]
+
+# --- sources ----------------------------------------------------------------------------------
+# Two stages, so that no remote "sudo rsync" is needed (works with a sudo password, -K):
+# 1. rsync as the SSH user into a private staging directory;
+# 2. rsync on the target, as root, into the root-owned install tree.
+- name: Stage the Jarvis sources in the administrator home
+  ansible.posix.synchronize:
+    src: "{{ jarvis_repo_root }}/"
+    dest: "{{ jarvis_stage_dir }}/"
+    delete: true
+    recursive: true
+    rsync_opts: "{{ jarvis_rsync_excludes }}"
+  become: false
+
+# A local copy on the target: the synchronize module would need a remote "sudo rsync" again.
+# The same excludes protect the build artifacts of the package (egg-info, build/) from --delete,
+# otherwise every run would delete them and reinstall the package; --omit-dir-times ignores the
+# directory timestamps the package build touches.
+- name: Install the sources in {{ jarvis_src }}  # noqa: command-instead-of-module
+  ansible.builtin.command: >-
+    rsync -a --omit-dir-times --delete --itemize-changes --chown=root:root --chmod=D755,Fu+rw,Fgo+r,Fgo-w
+    {{ jarvis_rsync_excludes | join(' ') }} {{ jarvis_stage_dir }}/ {{ jarvis_src }}/
+  register: jarvis_sources
+  changed_when: jarvis_sources.stdout | length > 0
+
+# --- Python environment --------------------------------------------------------------------------
+- name: Create the virtualenv with Python {{ jarvis_python_version }}
+  ansible.builtin.shell: "umask 022 && uv venv --python {{ jarvis_python_version }} {{ jarvis_venv }}"
+  args:
+    creates: "{{ jarvis_venv }}/bin/python"
+  environment: "{{ jarvis_uv_env }}"
+
+# CPU-only torch first, otherwise ultralytics pulls in the ~2.5 GB CUDA build.
+- name: Install PyTorch (CPU build)
+  ansible.builtin.shell: >-
+    umask 022 &&
+    uv pip install --python {{ jarvis_venv }}/bin/python torch torchvision torchaudio
+    --index-url {{ jarvis_torch_index }}
+  environment: "{{ jarvis_uv_env }}"
+  register: jarvis_pip_torch
+  changed_when: "'Installed' in jarvis_pip_torch.stderr"
+
+# insightface is compiled from source and needs numpy and cython at build time.
+- name: Install the insightface build dependencies
+  ansible.builtin.shell: >-
+    umask 022 &&
+    uv pip install --python {{ jarvis_venv }}/bin/python "numpy<2" cython
+  environment: "{{ jarvis_uv_env }}"
+  register: jarvis_pip_build
+  changed_when: "'Installed' in jarvis_pip_build.stderr"
+
+- name: Install insightface
+  ansible.builtin.shell: >-
+    umask 022 &&
+    uv pip install --python {{ jarvis_venv }}/bin/python --no-build-isolation insightface==0.7.3
+  environment: "{{ jarvis_uv_env }}"
+  register: jarvis_pip_insightface
+  changed_when: "'Installed' in jarvis_pip_insightface.stderr"
+
+# uv always reinstalls a package from a local directory: install only when the sources or the
+# extras changed, or when it is missing (the marker names the extras of the installed package).
+- name: Check the installed package marker
+  ansible.builtin.stat:
+    path: "{{ jarvis_prefix }}/.jarvis-home-{{ jarvis_extras }}"
+  register: jarvis_app_marker
+
+- name: Install the jarvis-home package
+  ansible.builtin.shell: >-
+    umask 022 &&
+    uv pip install --python {{ jarvis_venv }}/bin/python
+    {{ '--reinstall-package jarvis-home' if jarvis_sources.changed else '' }}
+    "jarvis-home[{{ jarvis_extras }}] @ file://{{ jarvis_src }}"
+  environment: "{{ jarvis_uv_env }}"
+  register: jarvis_pip_app
+  changed_when: "'Installed' in jarvis_pip_app.stderr"
+  when: jarvis_sources.changed or not jarvis_app_marker.stat.exists
+  notify: Restart jarvis
+
+- name: Record the installed package marker
+  ansible.builtin.copy:
+    dest: "{{ jarvis_prefix }}/.jarvis-home-{{ jarvis_extras }}"
+    content: "{{ jarvis_version }}\n"
+    mode: "0644"
+
+# The hardened login.defs UMASK 027 also applies to the sudo sessions of Ansible: uv runs under
+# umask 022 above, and this check repairs a runtime installed before (e.g. by hand).
+# World-readable (no write) is the intended mode for this root-owned code.
+- name: Look for files of the Python runtime that the service account cannot read
+  ansible.builtin.command: >-
+    find {{ jarvis_venv }} {{ jarvis_prefix }}/python -name __pycache__ -prune -o ( ! -perm -o=r -o -type d ! -perm -o=x ) -print -quit
+  register: jarvis_unreadable
+  changed_when: false
+
+- name: Make the Python runtime readable by the service account
+  ansible.builtin.command: "chmod -R go+rX,go-w {{ jarvis_venv }} {{ jarvis_prefix }}/python"
+  when: jarvis_unreadable.stdout | length > 0
+  changed_when: true
+
+- name: Read the installed version
+  ansible.builtin.command: "{{ jarvis_venv }}/bin/python -c 'import jarvis; print(jarvis.__version__)'"
+  environment: { PYTHONDONTWRITEBYTECODE: "1" }
+  register: jarvis_installed_version
+  changed_when: false
+
+- name: Assert that the installed version is the one deployed
+  ansible.builtin.assert:
+    that: jarvis_installed_version.stdout == jarvis_version
+    fail_msg: "Installed {{ jarvis_installed_version.stdout }}, expected {{ jarvis_version }}."
+    quiet: true
+
+# --- configuration and secrets -------------------------------------------------------------------
+- name: Install the default configuration (kept once it exists)
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/{{ item.src }}"
+    dest: "/etc/jarvis/{{ item.dest }}"
+    owner: root
+    group: jarvis
+    mode: "0640"
+    force: false
+  loop:
+    - { src: config/config.example.yaml, dest: config.yaml }
+    - { src: deploy/jarvis.env.example, dest: jarvis.env }
+  loop_control:
+    label: "/etc/jarvis/{{ item.dest }}"
+
+- name: Write the non-secret settings to jarvis.env
+  ansible.builtin.lineinfile:
+    path: /etc/jarvis/jarvis.env
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+  loop: "{{ jarvis_env | dict2items }}"
+  notify: Restart jarvis
+
+- name: Write the secrets to jarvis.env
+  ansible.builtin.lineinfile:
+    path: /etc/jarvis/jarvis.env
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+  loop: "{{ jarvis_secrets | dict2items }}"
+  no_log: true
+  notify: Restart jarvis
+
+# --- runtime directory, device names, systemd units ------------------------------------------------
+- name: Install the tmpfiles rule (/run/jarvis)
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/deploy/tmpfiles/jarvis.conf"
+    dest: /etc/tmpfiles.d/jarvis.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+# A task, not a handler: a notification is lost when a run fails before the handlers run,
+# and /run/jarvis (control socket, capabilities snapshot) must exist before any unit starts.
+- name: Check the runtime directory
+  ansible.builtin.stat:
+    path: /run/jarvis
+  register: jarvis_run_dir
+
+- name: Create the runtime directory from the tmpfiles rule
+  ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/jarvis.conf
+  when: not jarvis_run_dir.stat.exists
+  changed_when: true
+
+- name: Ensure the udev rules directory exists
+  ansible.builtin.file:
+    path: /etc/udev/rules.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the udev rules (stable relay and door sensor names)
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/deploy/udev/99-jarvis.rules"
+    dest: /etc/udev/rules.d/99-jarvis.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload udev
+
+- name: Install the systemd units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/
+    owner: root
+    group: root
+    mode: "0644"
+  with_fileglob:
+    - "{{ jarvis_repo_root }}/deploy/systemd/*"
+  notify: [Reload systemd, Restart jarvis]
+
+# --- commands in the PATH ------------------------------------------------------------------------
+- name: Install the shared bash library
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/scripts/lib/jarvis-common.sh"
+    dest: /usr/local/lib/jarvis/jarvis-common.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the Jarvis commands
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - { src: deploy/bin/jarvis, dest: /usr/local/bin/jarvis }
+    - { src: deploy/bin/jarvis-console, dest: /usr/local/bin/jarvis-console }
+    - { src: scripts/jarvis-cert.sh, dest: /usr/local/sbin/jarvis-cert }
+    - { src: scripts/jarvis-hwinfo.sh, dest: /usr/local/bin/jarvis-hwinfo }
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: Apply the pending handlers (units known to systemd before the next roles)
+  ansible.builtin.meta: flush_handlers

@@ -1,0 +1,36 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/firewall/tasks/main.yml
+# Purpose : Host firewall (nftables): default deny inbound, LAN-only web UI, admin-only SSH
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# ufw would fight nftables for the ruleset: it is removed (Ubuntu ships it inactive).
+- name: Remove ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: absent
+    purge: true
+
+- name: Install nftables
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+
+- name: Install the Jarvis ruleset (validated with nft -c before replacing the file)
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0600"
+    validate: nft -c -f %s
+  notify: Reload nftables
+
+- name: Enable nftables at boot
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: true
+    state: started

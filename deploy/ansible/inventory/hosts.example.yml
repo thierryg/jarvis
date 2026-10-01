@@ -1,0 +1,31 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/inventory/hosts.example.yml
+# Purpose : Example inventory, LOCAL certificate (LAN only, private Jarvis CA, no domain needed)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# cp inventory/hosts.example.yml inventory/hosts.yml   (hosts.yml is not versioned)
+# Public domain with Let's Encrypt instead: see hosts.public-domain.example.yml.
+#
+# ansible_host : address of the freshly installed mini-PC (Ubuntu Server 26.04 LTS).
+# ansible_user : the administrator account created by the Ubuntu installer; it must accept
+#                your SSH key (ssh-copy-id) and be allowed to use sudo.
+all:
+  children:
+    jarvis:
+      hosts:
+        jarvis-01:
+          ansible_host: 192.168.1.20
+          ansible_user: admin
+          # --- TLS: local mode (default) ---
+          jarvis_tls_mode: local
+          # Names clients will type (single label or .local/.lan/.home.arpa/.internal).
+          jarvis_tls_names: [jarvis.local, jarvis]
+          # LAN addresses in the certificate (empty = detected on the host).
+          jarvis_tls_ips: [192.168.1.20]
+          # --- network ---
+          # jarvis_lan_networks: ["192.168.1.0/24"]      # tighten to your LAN
+          # jarvis_camera_host: 192.168.50.10            # probed by the preflight

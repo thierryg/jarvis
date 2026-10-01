@@ -1,0 +1,49 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/site.yml
+# Purpose : Main playbook: deploy and harden Jarvis on a fresh Ubuntu Server 26.04 LTS
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Run through the wrapper (recommended):   ./jarvis-deploy.sh deploy
+# or directly:                             ansible-playbook site.yml
+#
+# Tags (--tags / --skip-tags): preflight, base, hardening, firewall, ssh, jarvis, tls, anubis,
+# nginx, fail2ban, models, monitoring, motd, services, postflight.
+# The role order matters: the firewall allows the SSH port before sshd is reconfigured, nginx
+# creates its logs before fail2ban watches them, the services start once the models exist.
+
+- name: Deploy Jarvis (jarvis-home)
+  hosts: jarvis
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Derive the facts shared by every role
+      ansible.builtin.set_fact:
+        # Containers (CI test harness) cannot change kernel settings, udev or AppArmor.
+        jarvis_in_container: >-
+          {{ ansible_virtualization_role | default('') == 'guest'
+             and ansible_virtualization_type | default('') in ['docker', 'container', 'podman', 'lxc', 'systemd-nspawn'] }}
+        jarvis_venv: "{{ jarvis_prefix }}/venv"
+        jarvis_src: "{{ jarvis_prefix }}/src"
+      tags: [always]
+
+  roles:
+    - { role: preflight, tags: [preflight] }
+    - { role: base, tags: [base] }
+    - { role: hardening, tags: [hardening] }
+    - { role: firewall, tags: [firewall] }
+    - { role: ssh, tags: [ssh] }
+    - { role: jarvis, tags: [jarvis] }
+    - { role: tls, tags: [tls] }
+    - { role: anubis, tags: [anubis], when: jarvis_anubis_enabled | bool }
+    - { role: nginx, tags: [nginx] }
+    - { role: fail2ban, tags: [fail2ban] }
+    - { role: models, tags: [models], when: jarvis_install_models | bool }
+    - { role: monitoring, tags: [monitoring] }
+    - { role: motd, tags: [motd], when: jarvis_motd | bool }
+    - { role: services, tags: [services] }
+    - { role: postflight, tags: [postflight] }

@@ -1,0 +1,22 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/models/tasks/main.yml
+# Purpose : AI models: download and OpenVINO export, as the jarvis account (once)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# The secrets of jarvis.env (e.g. a Picovoice key) are loaded like the services do.
+- name: Download and export the AI models (several minutes on the first run)
+  ansible.builtin.shell: set -a && . /etc/jarvis/jarvis.env && exec {{ jarvis_venv }}/bin/jarvis setup-models
+  args:
+    creates: /var/lib/jarvis/models/yolo11n_openvino_model
+    executable: /bin/bash
+  become: true
+  become_user: jarvis
+  environment:
+    HOME: /var/lib/jarvis
+    YOLO_CONFIG_DIR: /var/lib/jarvis/.config/Ultralytics
+    JARVIS_CONFIG: /etc/jarvis/config.yaml
+  notify: Restart jarvis

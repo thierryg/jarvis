@@ -1,0 +1,24 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/group_vars/all/vault.example.yml
+# Purpose : Template of the encrypted secrets file (copy to vault.yml, then encrypt it)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+#   cp vault.example.yml vault.yml && ansible-vault encrypt vault.yml
+#   ./jarvis-deploy.sh deploy --ask-vault-pass
+# vault.yml is ignored by git. Every value below is written to /etc/jarvis/jarvis.env
+# (root:jarvis 0640) and never printed (no_log).
+jarvis_secrets:
+  JARVIS__SECRETS__CAMERA_USERNAME: "jarvis"
+  JARVIS__SECRETS__CAMERA_PASSWORD: "change-me"
+  # JARVIS__SECRETS__METRICS_TOKEN: "long-random-token"
+  # JARVIS__SECRETS__MQTT_USERNAME: "jarvis"
+  # JARVIS__SECRETS__MQTT_PASSWORD: "change-me"
+  # JARVIS__SECRETS__MQTT_COMMAND_TOKEN: "long-random-token"
+
+# Let's Encrypt DNS-01 plugin credentials (jarvis_tls_mode: letsencrypt), e.g. Cloudflare:
+# jarvis_le_dns_credentials: |
+#   dns_cloudflare_api_token = 0123456789abcdef

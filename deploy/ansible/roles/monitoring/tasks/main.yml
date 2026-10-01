@@ -1,0 +1,22 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/monitoring/tasks/main.yml
+# Purpose : Optional Prometheus node_exporter (installed stopped, switched on from the web UI)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+- name: Install prometheus-node-exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+  when: jarvis_with_monitoring | bool
+
+# jarvis-monitoring.path applies the choice made in Settings > Monitoring (as root).
+- name: Leave node_exporter to the web UI setting
+  ansible.builtin.systemd_service:
+    name: prometheus-node-exporter
+    enabled: false
+    state: stopped
+  when: jarvis_with_monitoring | bool

@@ -1,0 +1,22 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis-backup.timer
+# Purpose : Daily trigger for jarvis-backup.service
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis-backup.timer
+[Unit]
+Description=Jarvis: daily backup
+
+[Timer]
+# Every day at 03:30, with up to 15 minutes of random jitter.
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15min
+# Catch up on a missed run if the machine was powered off at the scheduled time.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

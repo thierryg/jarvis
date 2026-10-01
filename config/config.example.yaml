@@ -1,0 +1,167 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : config/config.example.yaml
+# Purpose : Annotated example configuration (copy to /etc/jarvis/config.yaml)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Jarvis central configuration — copy to /etc/jarvis/config.yaml (mode 640, owner root:jarvis).
+#
+# Every value (secrets included) can come from, highest precedence first:
+#   1. a parameter set in the web UI (Settings) or with « jarvis set <key> <value> »;
+#   2. an environment variable JARVIS__<SECTION>__<KEY>, e.g. JARVIS__SECRETS__CAMERA_PASSWORD
+#      or JARVIS__FACES__MATCH_THRESHOLD=0.5 (put them in /etc/jarvis/jarvis.env);
+#   3. this file (${VAR} / ${VAR:-default} references are expanded from the environment);
+#   4. the built-in default.
+log_level: INFO
+
+# All credentials in one place. Keep this file 640 root:jarvis, or leave the values empty here and
+# provide them through jarvis.env (JARVIS__SECRETS__...) or the write-only Settings > Secrets page.
+secrets:
+  camera_username: ${CAMERA_USER:-}        # ONVIF/RTSP account created on the camera
+  camera_password: ${CAMERA_PASSWORD:-}
+  picovoice_access_key: ${PICOVOICE_ACCESS_KEY:-}   # only for wakeword.engine: porcupine
+  metrics_token: ""                        # Prometheus bearer token; generated on first use when empty
+  webhook_token: ""                        # optional "Authorization: Bearer" for notifications.webhook_url
+  loki_username: ""                        # optional basic auth of the Loki push endpoint
+  loki_password: ""
+
+camera:
+  # Use the SECONDARY (sub) stream for analysis (1280x720 H.264, 10-15 fps).
+  # Axis    : rtsp://IP/axis-media/media.amp?resolution=1280x720&videocodec=h264
+  # Hikvision : rtsp://IP:554/Streaming/Channels/102
+  # Dahua   : rtsp://IP:554/cam/realmonitor?channel=1&subtype=1
+  # No credentials in the URL: they are injected from secrets.camera_username / camera_password.
+  rtsp_url: "rtsp://192.168.50.64:554/Streaming/Channels/102"
+  hw_accel: false          # true = VAAPI (H.264 only on Intel HD 4600)
+
+ptz:
+  enabled: true
+  host: 192.168.50.64      # isolated camera network (eth1), see docs/diagrams/jarvis-network-flows.pdf
+  port: 80
+  # username / password: taken from the secrets section when not set here.
+  home_preset: "1"         # "entrance view" preset defined in the camera
+  return_home_after_s: 30
+  sound_preset: null
+  pan_gain: 0.6
+  tilt_gain: 0.6
+  deadzone: 0.12
+  max_speed: 0.5           # keep it low: with ~0.5 s of RTSP latency, higher values cause oscillation
+  invert_tilt: false
+  zoom_enabled: true
+  target_height_ratio: 0.55
+
+detector:
+  model_path: /var/lib/jarvis/models/yolo11n_openvino_model
+  imgsz: 480               # 416 on an i3-class CPU
+  conf: 0.45
+  tracker: bytetrack.yaml
+
+faces:
+  model_name: buffalo_s    # buffalo_l = more accurate but ~3x slower on CPU
+  model_root: /var/lib/jarvis/models/insightface
+  providers: [CPUExecutionProvider]
+  det_size: 320
+  match_threshold: 0.45    # ArcFace cosine similarity: 0.40 lenient ... 0.55 strict
+  votes_required: 3        # number of agreeing frames before declaring a person "recognized"
+  unknown_after_observations: 6
+  min_face_px: 40
+  min_det_score: 0.6
+  min_sharpness: 30
+  unknown_cluster_similarity: 0.5   # groups repeat unknown visitors together
+  adaptive_enabled: true   # enriches the gallery with the best captures (max 5 per person)
+  adaptive_min_score: 0.6
+  search_threshold: 0.45   # face search across the sightings history
+
+vision:
+  process_fps: 6           # check vision_fps in the Live tab, then tune
+  preview_fps: 5
+  preview_width: 960
+  frame_path: /run/jarvis/frame.jpg
+
+decision:
+  led_on_s: 5                        # other LED signals (pulse, unknown face, watchlist)
+  greeting: "Bonjour {first_name}"
+  # Recognition window: the green LED stays on and voice commands ("Jarvis… ouvre la porte du
+  # garage") are accepted for this long after an authorized person is recognized.
+  auth_window_s: 30
+  voice_only_after_recognition: true # the microphone is ignored outside the window
+  listen_after_recognition_s: 0      # no listening without the "Jarvis" wake word
+  unknown_message: null    # e.g. "Bonjour, veuillez sonner s'il vous plaît."
+
+audio:
+  enabled: true
+  input_device: null       # name or index (run python -m sounddevice to list devices)
+  output_device: null
+  sound_trigger_rms: 0     # e.g. 0.05 to point the PTZ camera at a noise (together with ptz.sound_preset)
+
+wakeword:
+  engine: openwakeword     # "openwakeword" ("hey jarvis", open source) or "porcupine" ("jarvis")
+  oww_model: hey_jarvis_v0.1   # or the path to a custom-trained "jarvis" .onnx model
+  oww_dir: /var/lib/jarvis/models/openwakeword
+  threshold: 0.5
+  porcupine_keyword: jarvis
+
+stt:
+  vosk_model_path: /var/lib/jarvis/models/vosk-model-small-fr-0.22
+  listen_timeout_s: 6
+
+speaker:
+  enabled: false           # true = the voice must match the recognized person
+  threshold: 0.35
+  model_dir: /var/lib/jarvis/models/spkrec-ecapa-voxceleb
+
+tts:
+  piper_model: /var/lib/jarvis/models/piper/fr_FR-siwis-medium.onnx
+  cache_dir: /var/lib/jarvis/tts-cache
+
+commands:
+  # Spoken after the wake word: "Jarvis… ouvre la porte du garage". strict: exact phrases only.
+  open_phrases: ["ouvre la porte du garage"]
+  close_phrases: ["ferme la porte du garage"]
+  cancel_phrases: []
+  strict: true
+
+hardware:
+  # 4-channel CH340 USB relay board (LCUS-4): 1 = garage, 2 = green LED, 3 = red LED
+  garage:    {backend: serial_lcus, device: /dev/jarvis-relay, channel: 1}
+  led_green: {backend: serial_lcus, device: /dev/jarvis-relay, channel: 2}
+  led_red:   {backend: serial_lcus, device: /dev/jarvis-relay, channel: 3}
+  # "Door closed" reed switch wired between CTS and GND of a second USB-serial adapter
+  door_sensor: {backend: none}   # {backend: serial_cts, device: /dev/jarvis-door}
+  pulse_ms: 500
+  cooldown_s: 5
+
+# License plate recognition (ANPR, fast-alpr, offline). Enable, then run "jarvis setup-models".
+# Automation needs the door sensor (hardware.door_sensor): the single-button motor toggles.
+plates:
+  enabled: false
+  auto_open: true            # known plate + approaching vehicle + door "closed" -> open
+  auto_close: false          # DANGER, opt-in: close after the known vehicle left and the scene stayed clear
+  close_delay_s: 20
+  min_confidence: 0.80
+  votes_required: 2
+  vehicle_classes: [2, 3, 5, 7]   # COCO car, motorcycle, bus, truck
+
+storage:
+  data_dir: /var/lib/jarvis
+  unknown_retention_days: 30
+  event_retention_days: 180
+  sighting_retention_days: 90   # timestamped sightings (photo + identity)
+  plate_read_retention_days: 90 # license plate reads (plate + vehicle snapshot)
+
+notifications:
+  webhook_url: null   # e.g. http://homeassistant.local:8123/api/webhook/jarvis or https://ntfy.lan/jarvis
+  events: [face_unknown, watchlist_seen, access_denied_schedule, voice_denied, garage_pulse]
+
+api:
+  host: ${JARVIS_API_HOST:-127.0.0.1}   # 0.0.0.0 under Docker (internal network)
+  port: 8000
+  session_hours: 12          # maximum session lifetime
+  idle_timeout_minutes: 30   # automatic logout after inactivity (15, 30, 60, ...)
+  cookie_secure: true
+
+control:
+  socket_path: /run/jarvis/core.sock

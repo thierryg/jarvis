@@ -1,0 +1,58 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/monitoring/docker-compose.yml
+# Purpose : Monitoring stack (Loki, Prometheus, Grafana) for a separate server
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Monitoring stack meant for a SEPARATE server (NAS, VM, ...), not for the Jarvis mini-PC itself.
+# Usage: cd deploy/monitoring && JARVIS_HOST=192.168.1.10 METRICS_TOKEN=<token> docker compose up -d
+#   Grafana    : http://<server>:3000   (admin / password from GF_ADMIN_PASSWORD)
+#   Loki       : http://<server>:3100   (push URL to enter in Jarvis: http://<server>:3100/loki/api/v1/push)
+#   Prometheus : http://<server>:9090
+# Logs are shipped from the mini-PC by Grafana Alloy (recommended) or Promtail, which Grafana has
+# deprecated in favor of Alloy; both are configured from Jarvis > Settings > Monitoring.
+services:
+  # Log store (single instance, local filesystem storage).
+  loki:
+    image: grafana/loki:3.4.2
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    ports: ["3100:3100"]
+    restart: unless-stopped
+
+  # Metrics store, scrapes Jarvis /metrics and node_exporter; 90-day retention.
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=90d"]
+    environment:
+      JARVIS_HOST: ${JARVIS_HOST:?address of the Jarvis mini-PC}
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/jarvis_token:/etc/prometheus/jarvis_token:ro
+      - prometheus-data:/prometheus
+    ports: ["9090:9090"]
+    restart: unless-stopped
+
+  # Dashboards; datasources and the Jarvis dashboard are provisioned from ./grafana.
+  grafana:
+    image: grafana/grafana:11.5.2
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-change-me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["3000:3000"]
+    depends_on: [loki, prometheus]
+    restart: unless-stopped
+
+volumes:
+  loki-data:
+  prometheus-data:
+  grafana-data:

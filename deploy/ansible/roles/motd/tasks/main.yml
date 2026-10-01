@@ -1,0 +1,82 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/motd/tasks/main.yml
+# Purpose : SSH message of the day: JARVIS art, neofetch/fastfetch, live metrics, services
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# neofetch is archived upstream and may be missing from newer Ubuntu releases: fastfetch
+# (same purpose, maintained) is used then; jarvis-motd supports both.
+- name: Check whether neofetch is packaged for this release
+  ansible.builtin.command: apt-cache show --no-all-versions neofetch
+  register: motd_neofetch
+  changed_when: false
+  failed_when: false
+  when: jarvis_motd_fetch_tool | bool
+
+- name: Install neofetch (or fastfetch when neofetch is not available)
+  ansible.builtin.apt:
+    name: "{{ 'neofetch' if motd_neofetch.rc == 0 else 'fastfetch' }}"
+    state: present
+  when: jarvis_motd_fetch_tool | bool
+
+- name: Remove the former artwork location
+  ansible.builtin.file:
+    path: /etc/jarvis/motd
+    state: absent
+
+# Public artwork: outside /etc/jarvis (0750), so that any administrator running jarvis-motd reads it.
+- name: Create /usr/local/share/jarvis
+  ansible.builtin.file:
+    path: /usr/local/share/jarvis
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the JARVIS ASCII art
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/deploy/motd/jarvis.ascii"
+    dest: /usr/local/share/jarvis/jarvis.ascii
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install jarvis-motd and its update-motd hook
+  ansible.builtin.copy:
+    src: "{{ jarvis_repo_root }}/deploy/motd/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - { src: jarvis-motd, dest: /usr/local/bin/jarvis-motd }
+    - { src: 10-jarvis, dest: /etc/update-motd.d/10-jarvis }
+  loop_control:
+    label: "{{ item.dest }}"
+
+# The Ubuntu header, help text, news and landscape parts duplicate or clutter the Jarvis
+# screen; updates, release upgrade and reboot notices are kept.
+- name: Find the stock MOTD parts to silence
+  ansible.builtin.stat:
+    path: "/etc/update-motd.d/{{ item }}"
+  loop: [00-header, 10-help-text, 50-motd-news, 50-landscape-sysinfo, 60-unminimize]
+  register: motd_stock
+
+- name: Silence the stock MOTD parts
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    mode: "0644"
+  loop: "{{ motd_stock.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Disable the MOTD news download
+  ansible.builtin.lineinfile:
+    path: /etc/default/motd-news
+    regexp: '^ENABLED='
+    line: ENABLED=0
+    create: true
+    mode: "0644"

@@ -1,0 +1,39 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis-cert-renew.service
+# Purpose : One-shot TLS certificate renewal (local CA or Let's Encrypt) before expiry
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis-cert-renew.service
+# Renews /etc/jarvis/tls/jarvis.crt when it expires within 30 days (local mode: re-signed by the
+# Jarvis Local CA; letsencrypt mode: "certbot renew"), then validates and reloads nginx.
+# Triggered by jarvis-cert-renew.timer; run manually: sudo systemctl start jarvis-cert-renew
+# Check the result: jarvis-cert status ; journalctl -u jarvis-cert-renew
+[Unit]
+Description=Jarvis: TLS certificate renewal
+Documentation=man:openssl(1) man:certbot(1)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=JARVIS_COLOR=never
+ExecStart=/usr/local/sbin/jarvis-cert renew --days-before 30
+# Fails the unit (visible in "systemctl --failed" and the MOTD) if the result is not valid.
+ExecStartPost=/usr/local/sbin/jarvis-cert status --warn-days 7
+UMask=0077
+Nice=10
+# Hardening: root is needed (key files, nginx reload) but the rest of the system stays read-only.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/etc/jarvis/tls /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/www/letsencrypt /run
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service

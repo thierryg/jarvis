@@ -1,0 +1,43 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis-backup.service
+# Purpose : One-shot backup of the SQLite database and media files
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis-backup.service
+# Online (hot) backup of the SQLite database and media files to /var/backups/jarvis
+# (rotation: keeps the 14 most recent archives).
+# Triggered by jarvis-backup.timer; run it manually with "sudo systemctl start jarvis-backup".
+[Unit]
+Description=Jarvis: database and media backup
+Documentation=file:///opt/jarvis/src/docs/SOFTWARE.md
+
+[Service]
+Type=oneshot
+User=jarvis
+Group=jarvis
+Environment=JARVIS_CONFIG=/etc/jarvis/config.yaml
+ExecStart=/opt/jarvis/venv/bin/jarvis backup --dest /var/backups/jarvis --keep 14
+# Archives are private to the jarvis user.
+UMask=0077
+# Low CPU and idle I/O priority so the backup never disturbs live vision/voice processing.
+Nice=10
+IOSchedulingClass=idle
+# Hardening: no devices, no network, read-only data directory, write access to the backup dir only.
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ReadOnlyPaths=/var/lib/jarvis
+ReadWritePaths=/var/backups/jarvis
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+SystemCallFilter=@system-service

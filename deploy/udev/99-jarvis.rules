@@ -1,0 +1,21 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/udev/99-jarvis.rules
+# Purpose : Stable device names and permissions for the relay and door sensor
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/udev/rules.d/99-jarvis.rules  (then: sudo udevadm control --reload && sudo udevadm trigger)
+# To identify your devices: udevadm info -a -n /dev/ttyUSB0 | grep -E 'idVendor|idProduct|serial'
+
+# CH340-based USB relay board (LCUS-1/2/4) -> /dev/jarvis-relay
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="jarvis-relay", GROUP="dialout", MODE="0660"
+
+# FTDI USB-to-serial adapter used as the door sensor input (CTS line) -> /dev/jarvis-door
+# (if you have two adapters of the same model, add ATTRS{serial}=="..." to tell them apart)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", SYMLINK+="jarvis-door", GROUP="dialout", MODE="0660"
+
+# "USBRelay" USB HID relay board (dcttech)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="05df", GROUP="plugdev", MODE="0660"

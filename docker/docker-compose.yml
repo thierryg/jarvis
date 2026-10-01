@@ -1,0 +1,62 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : docker/docker-compose.yml
+# Purpose : Docker Compose deployment (core + API + nginx)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Production-style Compose (host config in /etc/jarvis, host devices). To try Jarvis on a
+# workstation without any of that, use docker/start.sh (docker-compose.local.yml) instead.
+# Usage: cd docker && docker compose up -d --build
+#        docker compose run --rm core setup-models
+#        docker compose run --rm api create-user admin
+# On the host: sudo ../scripts/jarvis-cert.sh issue --mode local (certificates go to /etc/jarvis/tls)
+# The audio/dialout/plugdev GIDs must match the host's (check with: getent group audio).
+
+# Settings shared by the core and api services (same image, same config and volumes).
+x-common: &common
+  build: {context: .., dockerfile: docker/Dockerfile}
+  image: jarvis:latest
+  restart: unless-stopped
+  env_file: /etc/jarvis/jarvis.env
+  volumes:
+    - /etc/jarvis/config.yaml:/etc/jarvis/config.yaml:ro
+    - jarvis-data:/var/lib/jarvis
+    - jarvis-run:/run/jarvis
+
+services:
+  # Core: the only container with hardware access (sound card, relay, optional door sensor).
+  core:
+    <<: *common
+    command: ["core"]
+    devices:
+      - /dev/snd:/dev/snd
+      - /dev/jarvis-relay:/dev/jarvis-relay
+      # - /dev/jarvis-door:/dev/jarvis-door
+    group_add: ["audio", "dialout"]
+
+  # API: no devices; talks to the core over the socket in the shared jarvis-run volume.
+  api:
+    <<: *common
+    command: ["api"]
+    environment:
+      # Listen on the Compose network (the port is not published) and trust nginx's headers.
+      JARVIS__API__HOST: 0.0.0.0
+      JARVIS__API__FORWARDED_ALLOW_IPS: "*"
+    depends_on: [core]
+
+  # TLS reverse proxy, the only service exposed on the host.
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./nginx-docker.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/jarvis/tls:/etc/jarvis/tls:ro
+    depends_on: [api]
+
+volumes:
+  jarvis-data:
+  jarvis-run:

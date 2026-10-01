@@ -1,0 +1,22 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis-cert-renew.timer
+# Purpose : Twice-daily trigger for jarvis-cert-renew.service
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis-cert-renew.timer
+# Twice a day as recommended by Let's Encrypt; the renewal only happens within 30 days of expiry.
+[Unit]
+Description=Jarvis: TLS certificate renewal check
+
+[Timer]
+OnCalendar=*-*-* 04:17:00
+OnCalendar=*-*-* 16:17:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

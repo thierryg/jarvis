@@ -1,0 +1,24 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Security vulnerability? Do NOT open an issue: see SECURITY.md."
+  - type: input
+    id: version
+    attributes: {label: Version / commit, placeholder: "output of: jarvis version"}
+    validations: {required: true}
+  - type: textarea
+    id: what
+    attributes: {label: What happened, description: "Expected vs. observed behavior"}
+    validations: {required: true}
+  - type: textarea
+    id: repro
+    attributes: {label: Steps to reproduce}
+  - type: textarea
+    id: logs
+    attributes: {label: Logs, description: "journalctl -u jarvis-core -n 100 (remove any personal data)", render: text}
+  - type: textarea
+    id: hw
+    attributes: {label: Hardware, description: "Output of « jarvis hardware »"}

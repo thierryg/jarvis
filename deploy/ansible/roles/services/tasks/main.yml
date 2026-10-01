@@ -1,0 +1,43 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/services/tasks/main.yml
+# Purpose : Enable and start the Jarvis services, timers and path units
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+- name: Apply the pending configuration handlers first
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable the Jarvis units at boot
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    daemon_reload: true
+  loop: >-
+    {{ ['jarvis.target', 'jarvis-api.service', 'jarvis-backup.timer', 'jarvis-monitoring.path', 'jarvis-cert-renew.timer']
+       + (['jarvis-core.service'] if jarvis_install_models | bool else [])
+       + (['jarvis-console.service'] if jarvis_with_console | bool and not jarvis_in_container else []) }}
+
+# A unit left in "failed" by an earlier attempt would refuse to start (start rate limit).
+- name: Clear the failed state of the Jarvis units
+  ansible.builtin.command: systemctl reset-failed 'jarvis-*'  # noqa: command-instead-of-module
+  changed_when: false
+  failed_when: false
+
+- name: Start the Jarvis units
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: started
+  loop: >-
+    {{ ['jarvis-api.service', 'jarvis-backup.timer', 'jarvis-monitoring.path', 'jarvis-cert-renew.timer']
+       + (['jarvis-core.service'] if jarvis_install_models | bool else [])
+       + (['jarvis-console.service'] if jarvis_with_console | bool and not jarvis_in_container else []) }}
+
+- name: Leave jarvis-core stopped without models
+  ansible.builtin.debug:
+    msg: >-
+      jarvis-core not started: the models are not installed (jarvis_install_models: false).
+      Run 'jarvis setup-models', then 'systemctl enable --now jarvis-core'.
+  when: not jarvis_install_models | bool

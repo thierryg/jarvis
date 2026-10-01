@@ -1,0 +1,302 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/preflight/tasks/main.yml
+# Purpose : Sanity checks BEFORE any change: controller, OS, hardware, network, SSH lockout
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Blocking checks fail the play with an explicit message and change nothing; the soft
+# ones (CPU extensions, time synchronization, camera) only print a warning.
+
+# --- controller -------------------------------------------------------------------------
+- name: Check the Ansible version on the controller
+  ansible.builtin.assert:
+    that: ansible_version.full is version('2.16', '>=')
+    fail_msg: "ansible-core >= 2.16 is required (found {{ ansible_version.full }}): use ./jarvis-deploy.sh, which falls back to uvx."
+    quiet: true
+
+- name: Check the Jarvis source tree on the controller
+  ansible.builtin.stat:
+    path: "{{ jarvis_repo_root }}/{{ item }}"
+  loop:
+    - jarvis/VERSION
+    - pyproject.toml
+    - deploy/nginx/jarvis.conf
+    - deploy/systemd/jarvis-core.service
+    - scripts/jarvis-cert.sh
+    - scripts/lib/jarvis-common.sh
+  register: preflight_src
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Assert that the source tree is complete
+  ansible.builtin.assert:
+    that: preflight_src.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: "Missing in {{ jarvis_repo_root }}: {{ preflight_src.results | rejectattr('stat.exists') | map(attribute='item') | join(', ') }}"
+    quiet: true
+  run_once: true
+
+- name: Announce the version being deployed
+  ansible.builtin.debug:
+    msg: "Deploying jarvis-home {{ jarvis_version }} from {{ jarvis_repo_root }} to {{ inventory_hostname }} ({{ ansible_host | default(inventory_hostname) }})"
+  run_once: true
+
+# --- operating system and hardware ----------------------------------------------------
+- name: Check the operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+      - ansible_distribution_version in jarvis_supported_releases
+        or (jarvis_allow_ubuntu_2404 | bool and ansible_distribution_version == '24.04')
+    fail_msg: >-
+      Ubuntu Server {{ jarvis_supported_releases | join('/') }} LTS is required, found
+      {{ ansible_distribution }} {{ ansible_distribution_version }} (set jarvis_allow_ubuntu_2404
+      to accept 24.04).
+    quiet: true
+
+- name: Check the architecture, init system and cgroup version
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture == 'x86_64'
+      - ansible_service_mgr == 'systemd'
+    fail_msg: "x86_64 with systemd is required (found {{ ansible_architecture }} / {{ ansible_service_mgr }})."
+    quiet: true
+
+- name: Probe the unified cgroup hierarchy (per-service accounting)
+  ansible.builtin.stat:
+    path: /sys/fs/cgroup/cgroup.controllers
+  register: preflight_cgroup2
+
+- name: Assert cgroup v2
+  ansible.builtin.assert:
+    that: preflight_cgroup2.stat.exists
+    fail_msg: "cgroup v2 (unified hierarchy) is required for the systemd resource accounting."
+    quiet: true
+
+- name: Check memory and CPU threads
+  ansible.builtin.assert:
+    that:
+      - ansible_memtotal_mb >= jarvis_min_memory_mb | int
+      - ansible_processor_vcpus >= jarvis_min_cpu_threads | int
+    fail_msg: >-
+      At least {{ jarvis_min_memory_mb }} MB RAM and {{ jarvis_min_cpu_threads }} CPU threads are required
+      (found {{ ansible_memtotal_mb }} MB, {{ ansible_processor_vcpus }} threads).
+    quiet: true
+
+- name: Measure the free space for /opt and /var
+  ansible.builtin.command: df --output=avail -B1G /var /opt
+  register: preflight_df
+  changed_when: false
+
+- name: Check the free disk space
+  ansible.builtin.assert:
+    that: preflight_df.stdout_lines[1:] | map('trim') | map('int') | min >= jarvis_min_disk_free_gb | int
+    fail_msg: "At least {{ jarvis_min_disk_free_gb }} GB free on /var and /opt are required (models, venv, recordings)."
+    quiet: true
+
+- name: Read the CPU flags
+  ansible.builtin.command: grep -m1 -o -w -e avx2 -e avx512f -e avx_vnni /proc/cpuinfo
+  register: preflight_flags
+  changed_when: false
+  failed_when: false
+
+- name: Warn when the CPU has no AVX2 (inference will be slow)
+  ansible.builtin.debug:
+    msg: "WARNING: CPU without AVX2 ({{ ansible_processor[2] | default('?') }}): lower detector.imgsz and vision.process_fps."
+  when: "'avx2' not in preflight_flags.stdout"
+
+# --- privileges and SSH lockout protection -------------------------------------------------
+- name: Check that privilege escalation works
+  ansible.builtin.command: id -u
+  register: preflight_uid
+  changed_when: false
+
+- name: Assert root privileges
+  ansible.builtin.assert:
+    that: preflight_uid.stdout == '0'
+    fail_msg: "sudo did not give root: check that {{ jarvis_admin_user }} is in the sudo group (use -K for the password)."
+    quiet: true
+
+- name: Look for an SSH key of the administrator account
+  ansible.builtin.stat:
+    path: "~{{ jarvis_admin_user }}/.ssh/authorized_keys"
+  register: preflight_keys
+
+- name: Refuse to disable SSH passwords without a key (lockout protection)
+  ansible.builtin.assert:
+    that: >-
+      jarvis_ssh_password_authentication | bool
+      or (preflight_keys.stat.exists and preflight_keys.stat.size > 0)
+      or jarvis_ssh_authorized_keys | length > 0
+    fail_msg: >-
+      Password SSH login would be disabled but {{ jarvis_admin_user }} has no authorized key.
+      Run "ssh-copy-id {{ jarvis_admin_user }}@{{ ansible_host | default(inventory_hostname) }}" first,
+      or set jarvis_ssh_authorized_keys.
+    quiet: true
+
+- name: Refuse an AllowUsers list that would exclude the administrator (lockout protection)
+  ansible.builtin.assert:
+    that: jarvis_ssh_allow_users | length == 0 or jarvis_admin_user in jarvis_ssh_allow_users
+    fail_msg: "{{ jarvis_admin_user }} must be listed in jarvis_ssh_allow_users."
+    quiet: true
+
+- name: Refuse admin networks that do not include the controller (lockout protection)
+  ansible.builtin.assert:
+    that: jarvis_admin_networks | length > 0
+    fail_msg: "jarvis_admin_networks is empty: SSH would be blocked by the firewall."
+    quiet: true
+
+- name: Read the address the controller connects from
+  ansible.builtin.command: printenv SSH_CLIENT
+  register: preflight_ssh_client
+  become: false
+  changed_when: false
+  failed_when: false
+
+- name: Refuse a firewall that would block the controller (lockout protection)
+  ansible.builtin.command:
+    argv: >-
+      {{ ['python3', '-c',
+          'import ipaddress, sys; ip = ipaddress.ip_address(sys.argv[1]); '
+          ~ 'sys.exit(0 if any(ip in ipaddress.ip_network(n, strict=False) for n in sys.argv[2:]) else 1)',
+          preflight_ssh_client.stdout.split()[0]] + jarvis_admin_networks }}
+  when: preflight_ssh_client.stdout | length > 0
+  register: preflight_admin_net
+  changed_when: false
+  failed_when: false
+
+- name: Assert that the controller address is inside jarvis_admin_networks
+  ansible.builtin.assert:
+    that: preflight_admin_net.rc | default(0) == 0
+    fail_msg: >-
+      This controller connects from {{ preflight_ssh_client.stdout.split()[0] | default('?') }}, outside
+      jarvis_admin_networks {{ jarvis_admin_networks }}: add it, or SSH would be blocked after the deployment.
+    quiet: true
+
+# --- TLS mode ------------------------------------------------------------------------------
+- name: Check the TLS mode
+  ansible.builtin.assert:
+    that: jarvis_tls_mode in ['local', 'letsencrypt']
+    fail_msg: "jarvis_tls_mode must be 'local' (private Jarvis CA) or 'letsencrypt' (public domain), not '{{ jarvis_tls_mode }}'."
+    quiet: true
+
+- name: Check the local certificate names (local mode)
+  ansible.builtin.assert:
+    that:
+      - jarvis_tls_names | length > 0
+      - jarvis_tls_names | reject('match', '^[A-Za-z0-9-]+$') | reject('search', '\\.(local|lan|home\\.arpa|internal)$') | list | length == 0
+    fail_msg: >-
+      Local mode only accepts single-label names or .local/.lan/.home.arpa/.internal names
+      (got {{ jarvis_tls_names }}): use jarvis_tls_mode: letsencrypt for a public domain.
+    quiet: true
+  when: jarvis_tls_mode == 'local'
+
+- name: Check the Let's Encrypt settings (public domain mode)
+  ansible.builtin.assert:
+    that:
+      - jarvis_le_domain is match('^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$')
+      - jarvis_le_domain is not search('\\.(local|lan|home\\.arpa|internal)$')
+      - jarvis_le_email is search('^[^@ ]+@[^@ ]+\\.[^@ ]+$')
+      - jarvis_le_challenge in ['dns', 'http']
+      - jarvis_le_challenge == 'http' or jarvis_le_dns_plugin | length > 0
+      - >-
+        jarvis_le_challenge == 'http' or jarvis_le_dns_plugin in ['manual', 'route53']
+        or jarvis_le_dns_credentials is defined
+    fail_msg: >-
+      Let's Encrypt mode needs: jarvis_le_domain (public FQDN, got '{{ jarvis_le_domain }}'),
+      jarvis_le_email (got '{{ jarvis_le_email }}'), jarvis_le_challenge dns|http, and for DNS-01
+      jarvis_le_dns_plugin (cloudflare, ovh, gandi, rfc2136, route53, digitalocean...) with
+      jarvis_le_dns_credentials in vault.yml.
+    quiet: true
+  when: jarvis_tls_mode == 'letsencrypt'
+
+- name: Resolve the public domain (Let's Encrypt mode)
+  ansible.builtin.command: "getent ahosts {{ jarvis_le_domain }}"
+  register: preflight_le_dns
+  changed_when: false
+  failed_when: false
+  when: jarvis_tls_mode == 'letsencrypt'
+
+- name: Warn about the public domain resolution
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'WARNING: ' ~ jarvis_le_domain ~ ' does not resolve: DNS-01 still works (TXT record), but the LAN clients'
+         ~ ' need a local DNS entry pointing to this host.' if preflight_le_dns.rc != 0
+         else 'Resolves to: ' ~ (preflight_le_dns.stdout_lines | map('split') | map('first') | unique | join(', ')) }}
+  when: jarvis_tls_mode == 'letsencrypt'
+
+- name: Warn that HTTP-01 needs port 80 open from the Internet
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: jarvis_le_challenge: http requires port 80 of this host reachable from the Internet during
+      each validation, and jarvis_lan_networks must then allow Let's Encrypt (0.0.0.0/0 on port 80). Prefer
+      DNS-01 (default), which needs no inbound port.
+  when: jarvis_tls_mode == 'letsencrypt' and jarvis_le_challenge == 'http'
+
+# --- network --------------------------------------------------------------------------------
+- name: Check the Internet access needed by the installation (apt, PyPI, PyTorch, GitHub)
+  ansible.builtin.uri:
+    url: "{{ item }}"
+    method: HEAD
+    timeout: 15
+    status_code: [200, 301, 302, 403, 404, 405]
+  loop: "{{ jarvis_preflight_urls }}"
+  when: not jarvis_offline | bool
+  changed_when: false
+
+- name: Probe the ports 80 and 443
+  ansible.builtin.command: ss -H -ltnp '( sport = :80 or sport = :443 )'
+  register: preflight_ports
+  changed_when: false
+
+- name: Refuse ports 80/443 held by another web server
+  ansible.builtin.assert:
+    that: >-
+      preflight_ports.stdout_lines | reject('search', 'nginx') | list | length == 0
+    fail_msg: "Ports 80/443 are used by another program (apache2?): {{ preflight_ports.stdout_lines }}"
+    quiet: true
+
+- name: Read the clock synchronization state
+  ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+  register: preflight_ntp
+  changed_when: false
+  failed_when: false
+
+- name: Warn when the clock is not synchronized (TLS validity, audit timestamps)
+  ansible.builtin.debug:
+    msg: "WARNING: the system clock is not NTP-synchronized yet (timedatectl status)."
+  when: preflight_ntp.stdout | default('') != 'yes'
+
+- name: Probe the camera RTSP port
+  ansible.builtin.wait_for:
+    host: "{{ jarvis_camera_host }}"
+    port: 554
+    timeout: 3
+  register: preflight_camera
+  when: jarvis_camera_host | length > 0
+  failed_when: false
+
+- name: Warn when the camera does not answer
+  ansible.builtin.debug:
+    msg: "WARNING: camera {{ jarvis_camera_host }}:554 unreachable (PoE, VLAN, address?)."
+  when: jarvis_camera_host | length > 0 and 'Timeout' in preflight_camera.msg | default('')
+
+- name: Remember whether this is the first installation (default-login postflight check)
+  ansible.builtin.stat:
+    path: /var/lib/jarvis/jarvis.db
+  register: preflight_db
+
+- name: Record the installation state
+  ansible.builtin.set_fact:
+    jarvis_first_install: "{{ not preflight_db.stat.exists }}"
+
+- name: Preflight summary
+  ansible.builtin.debug:
+    msg:
+      - "OS          : {{ ansible_distribution }} {{ ansible_distribution_version }} ({{ ansible_kernel }})"
+      - "CPU / RAM   : {{ ansible_processor[2] | default('?') }} · {{ ansible_processor_vcpus }} threads · {{ ansible_memtotal_mb }} MB"
+      - "Install     : {{ 'first installation' if jarvis_first_install else 'upgrade of an existing installation' }}"
+      - "Container   : {{ jarvis_in_container }} (kernel, udev and AppArmor steps are skipped in a container)"

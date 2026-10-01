@@ -1,0 +1,37 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/fail2ban/tasks/main.yml
+# Purpose : fail2ban: SSH, web login brute force, web scanners, repeat offenders (nftables bans)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+- name: Install fail2ban (with the systemd journal backend)
+  ansible.builtin.apt:
+    name: [fail2ban, python3-systemd]
+    state: present
+
+- name: Install the Jarvis web login filter
+  ansible.builtin.template:
+    src: jarvis-login.conf.j2
+    dest: /etc/fail2ban/filter.d/jarvis-login.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Install the Jarvis jails
+  ansible.builtin.template:
+    src: jarvis.local.j2
+    dest: /etc/fail2ban/jail.d/jarvis.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Enable and start fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    enabled: true
+    state: started

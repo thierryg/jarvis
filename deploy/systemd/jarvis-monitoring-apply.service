@@ -1,0 +1,31 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis-monitoring-apply.service
+# Purpose : Privileged one-shot that applies the desired monitoring settings
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis-monitoring-apply.service
+# Applies (as root) the desired monitoring state: enables/disables prometheus-node-exporter,
+# generates /etc/promtail/config.yml or /etc/alloy/config.alloy and enables the selected log
+# shipping agent. Note: Grafana has deprecated Promtail in favor of Grafana Alloy; both are
+# supported here, but Alloy is the recommended agent for new installs.
+# Every field of desired.json is re-validated here (it is written by the unprivileged API and is
+# therefore untrusted); the outcome is written to /var/lib/jarvis/monitoring/status.json.
+[Unit]
+Description=Jarvis: apply monitoring settings
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=JARVIS_CONFIG=/etc/jarvis/config.yaml
+ExecStart=/opt/jarvis/venv/bin/jarvis monitoring-apply
+# Minimal root footprint: only the agent config directories and the monitoring state dir are
+# writable ("-" prefix: ignore the path if the agent is not installed).
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths=-/etc/promtail -/etc/alloy /var/lib/jarvis/monitoring

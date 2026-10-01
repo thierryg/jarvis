@@ -1,0 +1,141 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/group_vars/all/main.yml
+# Purpose : Every tunable of the Jarvis deployment, with its default and meaning
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Override per host in inventory/hosts.yml, or per run with -e. Secrets go in
+# group_vars/all/vault.yml (ansible-vault encrypted, see vault.example.yml), never here.
+
+# --- source tree (controller side) -----------------------------------------------------
+# Repository root, two levels above this playbook directory.
+jarvis_repo_root: "{{ (playbook_dir ~ '/../..') | realpath }}"
+# Version deployed: single source jarvis/VERSION.
+jarvis_version: "{{ lookup('ansible.builtin.file', jarvis_repo_root ~ '/jarvis/VERSION') | trim }}"
+# Account that runs Ansible on the target (SSH lockout protection uses it).
+jarvis_admin_user: "{{ ansible_user | default(lookup('ansible.builtin.env', 'USER')) }}"
+
+# --- preflight -------------------------------------------------------------------------
+# Reference platform. 24.04 is only accepted when jarvis_allow_ubuntu_2404 is true.
+jarvis_supported_releases: ["26.04"]
+jarvis_allow_ubuntu_2404: false
+jarvis_min_memory_mb: 3500
+jarvis_min_cpu_threads: 2
+jarvis_min_disk_free_gb: 15
+# Skip the Internet reachability checks (local apt/PyPI mirror or proxy).
+jarvis_offline: false
+jarvis_preflight_urls:
+  - https://archive.ubuntu.com/ubuntu/
+  - https://pypi.org/simple/
+  - https://download.pytorch.org/whl/cpu/
+  - https://github.com/
+# Optional camera address: its RTSP port is probed (warning only).
+jarvis_camera_host: ""
+
+# --- host identity ---------------------------------------------------------------------
+jarvis_hostname: jarvis
+jarvis_timezone: Europe/Paris
+# Publish <hostname>.local on the LAN (avahi mDNS).
+jarvis_mdns: true
+# Apply pending updates during the deployment (recommended on a fresh install).
+jarvis_upgrade_packages: true
+
+# --- network access control (nftables) --------------------------------------------------
+# Clients allowed to reach the web UI (80/443). IPv4 and IPv6 prefixes can be mixed.
+jarvis_lan_networks: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "fe80::/10", "fc00::/7"]
+# Sources allowed to open SSH sessions.
+jarvis_admin_networks: "{{ jarvis_lan_networks }}"
+# Monitoring server allowed to scrape node_exporter (:9100) and /metrics; empty = none.
+jarvis_monitoring_server: ""
+# Extra raw nftables rules appended to the input chain (advanced).
+jarvis_firewall_extra_rules: []
+
+# --- SSH ---------------------------------------------------------------------------------
+jarvis_ssh_port: 22
+# Keep false: key-only authentication (preflight refuses it if no key is installed).
+jarvis_ssh_password_authentication: false
+# Only these accounts may log in over SSH.
+jarvis_ssh_allow_users: ["{{ jarvis_admin_user }}"]
+# Public keys added to the administrator account.
+jarvis_ssh_authorized_keys: []
+
+# --- hardening -----------------------------------------------------------------------------
+jarvis_harden_kernel: true
+# Kernel modules that can never be loaded (rare filesystems and network protocols).
+# squashfs is kept: snapd needs it.
+jarvis_disabled_kernel_modules: [cramfs, freevxfs, jffs2, hfs, hfsplus, dccp, sctp, rds, tipc, firewire-core]
+jarvis_auditd: true
+jarvis_apparmor: true
+# Automatic security updates; automatic reboot is off by default (appliance on a door).
+jarvis_unattended_upgrades: true
+jarvis_unattended_reboot: false
+jarvis_unattended_reboot_time: "04:30"
+# Obsolete clear-text clients removed from the system.
+jarvis_removed_packages: [telnet, rsh-client, rsh-redone-client, talk, ftp, inetutils-telnet]
+
+# --- fail2ban --------------------------------------------------------------------------------
+jarvis_fail2ban_bantime: 1h
+jarvis_fail2ban_findtime: 10m
+jarvis_fail2ban_maxretry: 5
+# Web login failures (401/429 on /api/login) tolerated per findtime.
+jarvis_fail2ban_login_maxretry: 10
+# Never banned (keep minimal: an attacker on the LAN must be banned too).
+jarvis_fail2ban_ignoreip: ["127.0.0.1/8", "::1"]
+
+# --- Jarvis application ----------------------------------------------------------------------
+jarvis_prefix: /opt/jarvis
+jarvis_python_version: "3.11"
+jarvis_uv_version: "0.7.19"
+jarvis_torch_index: https://download.pytorch.org/whl/cpu
+# Speaker verification (speechbrain, heavier).
+jarvis_with_speaker: false
+# pfSense-style console on the mini-PC screen (tty1).
+jarvis_with_console: true
+# Download and export the AI models (several minutes; required for jarvis-core).
+jarvis_install_models: true
+# Non-secret settings written to /etc/jarvis/jarvis.env, e.g.
+#   JARVIS__CAMERA__RTSP_URL: rtsp://192.168.1.30:554/Streaming/Channels/101
+jarvis_env: {}
+# Secrets written to /etc/jarvis/jarvis.env (define them in vault.yml), e.g.
+#   JARVIS__SECRETS__CAMERA_PASSWORD: "..."
+jarvis_secrets: {}
+
+# --- TLS (jarvis-cert) --------------------------------------------------------------------------
+# local: private Jarvis CA (LAN, no public domain). letsencrypt: public domain name.
+jarvis_tls_mode: local
+jarvis_tls_names: ["{{ jarvis_hostname }}.local", "{{ jarvis_hostname }}", "jarvis.local"]
+# Private IPv4 addresses in the certificate; empty = detected by jarvis-cert.
+jarvis_tls_ips: []
+# Let's Encrypt (jarvis_tls_mode: letsencrypt). DNS-01 needs no inbound port on the Internet.
+jarvis_le_domain: ""
+jarvis_le_email: ""
+jarvis_le_challenge: dns
+jarvis_le_dns_plugin: ""
+# Content of the DNS plugin credentials file (vault.yml): jarvis_le_dns_credentials.
+jarvis_le_staging: false
+# Copy the local CA certificate to deploy/ansible/artifacts/<host>/ for the client devices.
+jarvis_fetch_ca: true
+
+# --- Anubis (anti-bot proxy) ---------------------------------------------------------------------
+jarvis_anubis_enabled: true
+jarvis_anubis_version: "1.27.0"
+jarvis_anubis_sha256: 13457d54f6d190d38ae23e0a3c206d20b97a855cfa88d9081b90aec316c1af99
+jarvis_anubis_difficulty: 4
+
+# --- monitoring ----------------------------------------------------------------------------------
+# Install prometheus-node-exporter (left disabled; enabled from Settings > Monitoring).
+jarvis_with_monitoring: false
+
+# --- MOTD ----------------------------------------------------------------------------------------
+jarvis_motd: true
+# System summary next to the ASCII art: neofetch, or fastfetch when neofetch is not packaged.
+jarvis_motd_fetch_tool: true
+
+# --- postflight ----------------------------------------------------------------------------------
+# Check the default web login admin/admin: auto = only on the first installation.
+jarvis_postflight_default_login: auto
+# Local CA mode: force one renewal to prove the renewal chain (issue, reload, served).
+jarvis_postflight_renewal_drill: true

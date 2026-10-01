@@ -1,0 +1,127 @@
+type,name,version,license,purl / source
+application,ffmpeg,4.4.2-0ubuntu0.22.04.1,LGPL-2.1-or-later,
+library,aiohappyeyeballs,2.7.1,PSF-2.0 ; Python-2.0,pkg:pypi/aiohappyeyeballs@2.7.1
+library,aiohttp,3.14.3,Apache-2.0 AND MIT,pkg:pypi/aiohttp@3.14.3
+library,aiosignal,1.4.0,Apache Software License,pkg:pypi/aiosignal@1.4.0
+library,albucore,0.0.24,MIT,pkg:pypi/albucore@0.0.24
+library,albumentations,2.0.8,MIT,pkg:pypi/albumentations@2.0.8
+library,annotated-doc,0.0.5,MIT,pkg:pypi/annotated-doc@0.0.5
+library,annotated-types,0.8.0,MIT,pkg:pypi/annotated-types@0.8.0
+library,anyio,4.15.1,MIT,pkg:pypi/anyio@4.15.1
+library,argon2-cffi,25.1.0,MIT,pkg:pypi/argon2-cffi@25.1.0
+library,argon2-cffi-bindings,26.1.0,MIT,pkg:pypi/argon2-cffi-bindings@26.1.0
+library,attrs,26.1.0,MIT,pkg:pypi/attrs@26.1.0
+library,certifi,2026.7.22,MPL-2.0 ; Mozilla Public License 2.0 (MPL 2.0),pkg:pypi/certifi@2026.7.22
+library,cffi,2.1.1,MIT-0,pkg:pypi/cffi@2.1.1
+library,charset-normalizer,3.5.1,MIT,pkg:pypi/charset-normalizer@3.5.1
+library,ciso8601,2.3.3,MIT,pkg:pypi/ciso8601@2.3.3
+library,click,8.5.0,BSD-3-Clause,pkg:pypi/click@8.5.0
+library,cloudpickle,3.1.2,BSD-3-Clause ; BSD License,pkg:pypi/cloudpickle@3.1.2
+library,contourpy,1.3.3,BSD License,pkg:pypi/contourpy@1.3.3
+library,cycler,0.12.1,BSD License,pkg:pypi/cycler@0.12.1
+library,Cython,3.3.0,Apache-2.0,pkg:pypi/cython@3.3.0
+library,easydict,1.13,LGPL-3.0 ; LGPL-3.0-only,pkg:pypi/easydict@1.13
+library,fastapi,0.141.1,MIT,pkg:pypi/fastapi@0.141.1
+library,filelock,3.32.3,MIT,pkg:pypi/filelock@3.32.3
+library,flatbuffers,25.12.19,Apache Software License,pkg:pypi/flatbuffers@25.12.19
+library,fonttools,4.66.0,MIT,pkg:pypi/fonttools@4.66.0
+library,frozenlist,1.8.0,Apache-2.0,pkg:pypi/frozenlist@1.8.0
+library,fsspec,2026.7.0,BSD-3-Clause,pkg:pypi/fsspec@2026.7.0
+library,h11,0.16.0,MIT,pkg:pypi/h11@0.16.0
+library,hidapi,0.15.0,GPL-3.0-only ; BSD License,pkg:pypi/hidapi@0.15.0
+library,httpcore,1.0.9,BSD-3-Clause,pkg:pypi/httpcore@1.0.9
+library,httptools,0.8.0,MIT,pkg:pypi/httptools@0.8.0
+library,httpx,0.28.1,BSD-3-Clause ; BSD License,pkg:pypi/httpx@0.28.1
+library,idna,3.20,BSD-3-Clause,pkg:pypi/idna@3.20
+library,ImageIO,2.38.0,BSD-2-Clause,pkg:pypi/imageio@2.38.0
+library,iniconfig,2.3.0,MIT,pkg:pypi/iniconfig@2.3.0
+library,insightface,0.7.3,MIT,pkg:pypi/insightface@0.7.3
+library,isodate,0.7.2,BSD License,pkg:pypi/isodate@0.7.2
+library,Jinja2,3.1.6,BSD License,pkg:pypi/jinja2@3.1.6
+library,joblib,1.6.0,BSD-3-Clause,pkg:pypi/joblib@1.6.0
+library,kiwisolver,1.5.1,BSD License,pkg:pypi/kiwisolver@1.5.1
+library,lap,0.5.13,BSD-2-Clause,pkg:pypi/lap@0.5.13
+library,lazy-loader,0.6,BSD-3-Clause,pkg:pypi/lazy-loader@0.6
+library,lxml,6.1.3,BSD-3-Clause,pkg:pypi/lxml@6.1.3
+library,MarkupSafe,3.0.3,BSD-3-Clause,pkg:pypi/markupsafe@3.0.3
+library,matplotlib,3.11.2,Python-2.0,pkg:pypi/matplotlib@3.11.2
+library,ml_dtypes,0.5.4,Apache-2.0,pkg:pypi/ml-dtypes@0.5.4
+library,mpmath,1.3.0,BSD License,pkg:pypi/mpmath@1.3.0
+library,multidict,6.9.1,UNDECLARED,pkg:pypi/multidict@6.9.1
+library,narwhals,2.26.0,MIT,pkg:pypi/narwhals@2.26.0
+library,networkx,3.6.1,BSD-3-Clause,pkg:pypi/networkx@3.6.1
+library,numpy,1.26.4,BSD License,pkg:pypi/numpy@1.26.4
+library,nvidia-ml-py,13.615.71,BSD License,pkg:pypi/nvidia-ml-py@13.615.71
+library,onnx,1.23.0,Apache-2.0,pkg:pypi/onnx@1.23.0
+library,onnxruntime,1.30.0,MIT,pkg:pypi/onnxruntime@1.30.0
+library,onvif-zeep-async,4.3.0,MIT,pkg:pypi/onvif-zeep-async@4.3.0
+library,opencv-python,4.11.0.86,Apache Software License,pkg:pypi/opencv-python@4.11.0.86
+library,opencv-python-headless,4.11.0.86,Apache Software License,pkg:pypi/opencv-python-headless@4.11.0.86
+library,openvino,2026.4.0,Apache-2.0,pkg:pypi/openvino@2026.4.0
+library,openvino-telemetry,2025.2.0,Apache Software License,pkg:pypi/openvino-telemetry@2025.2.0
+library,openwakeword,0.6.0,Apache Software License,pkg:pypi/openwakeword@0.6.0
+library,packaging,26.3,Apache-2.0 OR BSD-2-Clause,pkg:pypi/packaging@26.3
+library,pathvalidate,3.3.1,MIT,pkg:pypi/pathvalidate@3.3.1
+library,pillow,12.3.0,MIT-CMU,pkg:pypi/pillow@12.3.0
+library,piper-tts,1.8.0,GPL-3.0-or-later,pkg:pypi/piper-tts@1.8.0
+library,platformdirs,4.12.1,MIT,pkg:pypi/platformdirs@4.12.1
+library,pluggy,1.6.0,MIT,pkg:pypi/pluggy@1.6.0
+library,polars,1.44.2,MIT,pkg:pypi/polars@1.44.2
+library,polars-runtime-32,1.44.2,MIT,pkg:pypi/polars-runtime-32@1.44.2
+library,prettytable,3.18.0,BSD-3-Clause,pkg:pypi/prettytable@3.18.0
+library,propcache,0.5.4,Apache-2.0,pkg:pypi/propcache@0.5.4
+library,protobuf,7.36.2,UNDECLARED,pkg:pypi/protobuf@7.36.2
+library,psutil,7.2.2,BSD-3-Clause,pkg:pypi/psutil@7.2.2
+library,pycparser,3.0,BSD-3-Clause,pkg:pypi/pycparser@3.0
+library,pydantic,2.13.5,MIT,pkg:pypi/pydantic@2.13.5
+library,pydantic_core,2.46.5,MIT,pkg:pypi/pydantic-core@2.46.5
+library,Pygments,2.21.0,BSD-2-Clause,pkg:pypi/pygments@2.21.0
+library,pyparsing,3.3.3,MIT,pkg:pypi/pyparsing@3.3.3
+library,pyserial,3.5,BSD License,pkg:pypi/pyserial@3.5
+library,pytest,9.1.1,MIT,pkg:pypi/pytest@9.1.1
+library,python-dateutil,2.9.0.post0,Apache Software License ; BSD License,pkg:pypi/python-dateutil@2.9.0.post0
+library,python-dotenv,1.2.3,BSD-3-Clause,pkg:pypi/python-dotenv@1.2.3
+library,python-multipart,0.0.32,Apache-2.0,pkg:pypi/python-multipart@0.0.32
+library,PyYAML,6.0.3,MIT,pkg:pypi/pyyaml@6.0.3
+library,requests,2.34.2,Apache-2.0 ; Apache Software License,pkg:pypi/requests@2.34.2
+library,requests-file,3.0.1,Apache Software License,pkg:pypi/requests-file@3.0.1
+library,requests-toolbelt,1.0.0,Apache Software License,pkg:pypi/requests-toolbelt@1.0.0
+library,scikit-image,0.26.0,BSD License,pkg:pypi/scikit-image@0.26.0
+library,scikit-learn,1.9.1,BSD-3-Clause,pkg:pypi/scikit-learn@1.9.1
+library,scipy,1.17.1,BSD License,pkg:pypi/scipy@1.17.1
+library,setuptools,78.1.0,MIT,pkg:pypi/setuptools@78.1.0
+library,simsimd,6.5.16,Apache-2.0 ; Apache Software License,pkg:pypi/simsimd@6.5.16
+library,six,1.17.0,MIT,pkg:pypi/six@1.17.0
+library,sounddevice,0.5.6,MIT,pkg:pypi/sounddevice@0.5.6
+library,sqlite,3.47.1,Public Domain,pkg:generic/sqlite@3.47.1
+library,srt,3.5.3,MIT,pkg:pypi/srt@3.5.3
+library,starlette,1.7.0,BSD-3-Clause,pkg:pypi/starlette@1.7.0
+library,stringzilla,5.1.2,Apache-2.0,pkg:pypi/stringzilla@5.1.2
+library,sympy,1.14.0,BSD License,pkg:pypi/sympy@1.14.0
+library,tflite-runtime,2.14.0,Apache Software License,pkg:pypi/tflite-runtime@2.14.0
+library,threadpoolctl,3.7.0,BSD-3-Clause,pkg:pypi/threadpoolctl@3.7.0
+library,tifffile,2026.3.3,BSD-3-Clause,pkg:pypi/tifffile@2026.3.3
+library,torch,2.14.0+cpu,Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT,pkg:pypi/torch@2.14.0%2Bcpu
+library,torchvision,0.29.0+cpu,UNDECLARED,pkg:pypi/torchvision@0.29.0%2Bcpu
+library,tqdm,4.70.1,MPL-2.0 AND MIT,pkg:pypi/tqdm@4.70.1
+library,typing-inspection,0.4.4,MIT,pkg:pypi/typing-inspection@0.4.4
+library,typing_extensions,4.16.0,PSF-2.0,pkg:pypi/typing-extensions@4.16.0
+library,ultralytics,8.4.165,AGPL-3.0 ; AGPL-3.0-or-later,pkg:pypi/ultralytics@8.4.165
+library,ultralytics-platform,0.1.70,AGPL-3.0-only,pkg:pypi/ultralytics-platform@0.1.70
+library,ultralytics-thop,2.2.1,AGPL-3.0 ; AGPL-3.0-or-later,pkg:pypi/ultralytics-thop@2.2.1
+library,urllib3,2.8.0,MIT,pkg:pypi/urllib3@2.8.0
+library,uvicorn,0.54.0,BSD-3-Clause,pkg:pypi/uvicorn@0.54.0
+library,uvloop,0.22.1,MIT ; Apache Software License,pkg:pypi/uvloop@0.22.1
+library,vosk,0.3.45,Apache Software License,pkg:pypi/vosk@0.3.45
+library,watchfiles,1.3.0,MIT,pkg:pypi/watchfiles@1.3.0
+library,wcwidth,0.9.1,MIT,pkg:pypi/wcwidth@0.9.1
+library,websockets,17.1,BSD-3-Clause,pkg:pypi/websockets@17.1
+library,yarl,1.25.1,Apache-2.0,pkg:pypi/yarl@1.25.1
+library,zeep,4.3.3,MIT,pkg:pypi/zeep@4.3.3
+machine-learning-model,insightface-buffalo_s,buffalo_s (insightface 0.7),InsightFace pretrained models: non-commercial research only,https://github.com/deepinsight/insightface/tree/master/python-package
+machine-learning-model,openwakeword-hey_jarvis,0.1,CC-BY-NC-SA-4.0,https://github.com/dscripka/openWakeWord
+machine-learning-model,piper-fr_FR-siwis-medium,medium,CC-BY-4.0,https://huggingface.co/rhasspy/piper-voices/tree/main/fr/fr_FR/siwis/medium
+machine-learning-model,vosk-model-small-fr,0.22,Apache-2.0,https://alphacephei.com/vosk/models
+machine-learning-model,yolo11n,11 (export OpenVINO FP32),AGPL-3.0-only,https://github.com/ultralytics/ultralytics
+operating-system,ubuntu,22.04,UNDECLARED,
+platform,cpython,3.11.13,PSF-2.0,pkg:generic/python@3.11.13

@@ -1,0 +1,15 @@
+{# ============================================================================
+   Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+   ----------------------------------------------------------------------------
+   File    : deploy/ansible/roles/hardening/templates/jarvis-blacklist.conf.j2
+   Purpose : Kernel modules that can never be loaded
+   Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+   Project : jarvis-home (version: jarvis/VERSION)
+   Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+   ============================================================================ #}
+# {{ ansible_managed }} - /etc/modprobe.d/jarvis-blacklist.conf
+# "install <module> /bin/false" also blocks explicit loads (modprobe), not only auto-loading.
+{% for module in jarvis_disabled_kernel_modules %}
+install {{ module }} /bin/false
+blacklist {{ module }}
+{% endfor %}

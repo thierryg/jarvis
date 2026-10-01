@@ -1,0 +1,124 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : pyproject.toml
+# Purpose : Packaging metadata, dependencies and extras for jarvis-home
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-home"
+# The version lives in jarvis/VERSION only (see [tool.setuptools.dynamic]).
+dynamic = ["version"]
+description = "PTZ camera tracking, face recognition and voice-controlled garage access, 100% on-premises"
+readme = "README.md"
+# BSD Zero Clause (no condition at all); third-party components keep their own licenses
+# (THIRD-PARTY-NOTICES.md, SBOM).
+license = {text = "0BSD"}
+authors = [{name = "Thierry Gayet", email = "thierry.gayet@labworks.fr"}]
+classifiers = [
+  "License :: OSI Approved :: Zero-Clause BSD (0BSD)",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Home Automation",
+]
+requires-python = ">=3.11,<3.13"
+# "Lightweight" dependencies: enough for the web API and the test suite.
+dependencies = [
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+  "numpy>=1.26,<2",
+  "pillow>=10",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "python-multipart>=0.0.9",
+  "argon2-cffi>=23.1",
+  "cmd2>=4.2",
+  "psutil>=5.9",
+  "paho-mqtt>=2.0",
+]
+
+[project.optional-dependencies]
+# "core" process: vision, audio, hardware.
+# NB: install CPU-only torch FIRST (see README), otherwise pip pulls in the CUDA build (~2.5 GB).
+core = [
+  "ultralytics>=8.3,<9",
+  "openvino>=2024.4",
+  "insightface==0.7.3",
+  "onnxruntime>=1.17",
+  "onvif-zeep-async>=3.1",
+  "fast-alpr>=0.4",
+  "sounddevice>=0.4.6",
+  "vosk>=0.3.45",
+  "openwakeword>=0.6",
+  "piper-tts>=1.2",
+  "pyserial>=3.5",
+  "hidapi>=0.14",
+]
+# Optional extras: GPIO relays/sensors, speaker verification, Picovoice Porcupine wake word, dev tools.
+gpio = ["gpiod>=2.1"]
+speaker = ["speechbrain>=1.0", "torchaudio"]
+porcupine = ["pvporcupine>=3.0"]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.setuptools.package-data]
+jarvis = ["VERSION", "web/static/*", "web/static/i18n/*", "web/static/img/*", "provisioning/templates/*/*"]
+
+[tool.setuptools.dynamic]
+version = {file = "jarvis/VERSION"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+  "ignore::DeprecationWarning:starlette.*",
+  "ignore::DeprecationWarning:amqtt.*",
+  "ignore::UserWarning:amqtt.*",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+# Third-party Ansible collections and the ansible-lint cache are not project code.
+extend-exclude = ["docs/diagrams/src/*.html", "deploy/ansible/collections", "deploy/ansible/.ansible", "deploy/ansible/.cache"]
+
+[tool.ruff.lint]
+# pyflakes, pycodestyle errors, bugbear, pyupgrade, bandit-like checks
+select = ["F", "E9", "B", "UP", "S"]
+ignore = [
+  "B008",   # FastAPI Depends() in defaults is the framework's idiom
+  "B905",   # zip() without strict: inputs are same-length by construction
+  "S101",   # assert is used in tests and for internal invariants
+  "S603",   # subprocess without shell: arguments are fixed lists
+  "S607",   # partial executable paths (ffmpeg, systemctl) resolved from PATH on purpose
+  "S104",   # binding 0.0.0.0 is opt-in (Docker)
+  "UP007", "UP045", "UP006", "UP035",  # keep the explicit typing style of the codebase
+  "UP042",  # Intent(str, Enum): StrEnum would change str() of the values written to the audit log
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "docs"]
+# B101: asserts; B404/B603/B607: subprocess with fixed argument lists (ffmpeg, systemctl, vainfo)
+skips = ["B101", "B404", "B603", "B607"]
+
+[tool.coverage.run]
+source = ["jarvis"]
+omit = ["jarvis/console.py"]   # interactive tty menu, exercised manually
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

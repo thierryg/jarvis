@@ -1,0 +1,17 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/monitoring/grafana/provisioning/dashboards/jarvis.yml
+# Purpose : Grafana provisioning: load the Jarvis dashboards from disk
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Dashboard JSON files mounted at /var/lib/grafana/dashboards go into the "Jarvis" folder.
+apiVersion: 1
+providers:
+  - name: jarvis
+    folder: Jarvis
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

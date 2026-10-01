@@ -1,0 +1,33 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/inventory/hosts.public-domain.example.yml
+# Purpose : Example inventory, PUBLIC domain certificate (Let's Encrypt, DNS-01 challenge)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# cp inventory/hosts.public-domain.example.yml inventory/hosts.yml
+#
+# The certificate is publicly trusted (no CA to import on the clients) but Jarvis STAYS
+# LAN-ONLY: the DNS-01 challenge proves the domain ownership with a TXT record created
+# through your DNS provider API, so no port has to be opened on the Internet.
+# The LAN clients resolve the name to the mini-PC through your local DNS (box, Pi-hole,
+# Unbound...): jarvis.example.org -> 192.168.1.20.
+# The DNS API credentials go to group_vars/all/vault.yml (jarvis_le_dns_credentials).
+all:
+  children:
+    jarvis:
+      hosts:
+        jarvis-01:
+          ansible_host: 192.168.1.20
+          ansible_user: admin
+          jarvis_tls_mode: letsencrypt
+          jarvis_le_domain: jarvis.example.org
+          jarvis_le_email: admin@example.org
+          jarvis_le_challenge: dns
+          # Any certbot DNS plugin packaged as python3-certbot-dns-<name>:
+          # cloudflare, ovh, gandi, rfc2136, route53, digitalocean, linode, ...
+          jarvis_le_dns_plugin: cloudflare
+          # First runs: use the staging CA (untrusted, no rate limit), then set false.
+          jarvis_le_staging: true

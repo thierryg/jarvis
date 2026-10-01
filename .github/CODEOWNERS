@@ -1,0 +1,7 @@
+# Default owner; security-sensitive areas require the owner's review.
+*                                   @tgayet
+/jarvis/web/app.py                  @tgayet
+/jarvis/storage/database.py         @tgayet
+/jarvis/config/catalog.py           @tgayet
+/deploy/systemd/                    @tgayet
+/SECURITY.md                        @tgayet

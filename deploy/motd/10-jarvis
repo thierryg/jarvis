@@ -1,0 +1,16 @@
+#!/bin/sh
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/motd/10-jarvis
+# Purpose : update-motd(5) hook: run the Jarvis MOTD at every interactive login
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/update-motd.d/10-jarvis - executed by pam_motd (run-parts, as root). The output is
+# not a terminal, so colors are forced; a 5-second cap guarantees the login is never delayed.
+# Exit code: always 0 (a MOTD failure must never prevent a login).
+[ -x /usr/local/bin/jarvis-motd ] || exit 0
+JARVIS_COLOR=always timeout 5 /usr/local/bin/jarvis-motd 2>/dev/null
+exit 0

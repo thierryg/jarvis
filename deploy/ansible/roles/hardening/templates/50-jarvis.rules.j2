@@ -1,0 +1,34 @@
+{# ============================================================================
+   Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+   ----------------------------------------------------------------------------
+   File    : deploy/ansible/roles/hardening/templates/50-jarvis.rules.j2
+   Purpose : Audit rules (auditd): identity, privileges, Jarvis configuration, kernel
+   Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+   Project : jarvis-home (version: jarvis/VERSION)
+   Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+   ============================================================================ #}
+# {{ ansible_managed }} - /etc/audit/rules.d/50-jarvis.rules
+# Search with: ausearch -k <key> -i     Report: aureport -k
+# --- identity and privileges ---
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/sudoers -p wa -k privileges
+-w /etc/sudoers.d/ -p wa -k privileges
+-w /var/log/sudo.log -p wa -k privileges
+# --- remote access ---
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+# --- Jarvis configuration, secrets and TLS keys ---
+-w /etc/jarvis/ -p wa -k jarvis-config
+-w /etc/anubis/ -p wa -k jarvis-config
+-w /etc/nginx/ -p wa -k jarvis-web
+-w /etc/nftables.conf -p wa -k firewall
+# --- clock and kernel modules ---
+-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time-change
+-w /etc/localtime -p wa -k time-change
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k modules
+-w /usr/sbin/modprobe -p x -k modules
+# --- privileged commands run by humans ---
+-a always,exit -F arch=b64 -S execve -F euid=0 -F auid>=1000 -F auid!=unset -k root-commands

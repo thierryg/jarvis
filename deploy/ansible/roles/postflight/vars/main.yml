@@ -1,0 +1,33 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/postflight/vars/main.yml
+# Purpose : Internal variables of the postflight checks
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Name used for every HTTPS request (must be in the certificate) and how to trust it.
+postflight_name: "{{ jarvis_le_domain if jarvis_tls_mode == 'letsencrypt' else jarvis_tls_names[0] }}"
+postflight_trust: >-
+  {{ '--insecure' if (jarvis_tls_mode == 'letsencrypt' and jarvis_le_staging | bool)
+     else ('--cacert /etc/jarvis/tls/ca/jarvis-ca.crt' if jarvis_tls_mode == 'local' else '') }}
+postflight_curl: "curl -sS --max-time 20 --resolve {{ postflight_name }}:443:127.0.0.1 {{ postflight_trust }}"
+postflight_url: "https://{{ postflight_name }}"
+# Units that must be active at the end of the deployment.
+postflight_units: >-
+  {{ ['nginx.service', 'jarvis-api.service', 'fail2ban.service', 'nftables.service', 'ssh.service',
+      'jarvis-cert-renew.timer', 'jarvis-backup.timer', 'jarvis-monitoring.path']
+     + (['jarvis-core.service'] if jarvis_install_models | bool else [])
+     + (['anubis@jarvis.service'] if jarvis_anubis_enabled | bool else [])
+     + (['auditd.service'] if jarvis_auditd | bool and not jarvis_in_container else []) }}
+# Response headers required on every HTTPS answer (name: expected substring, lowercase).
+postflight_headers:
+  strict-transport-security: "max-age="
+  x-content-type-options: "nosniff"
+  x-frame-options: "deny"
+  referrer-policy: "same-origin"
+  content-security-policy: "default-src 'self'"
+  permissions-policy: "camera=()"
+  x-robots-tag: "noindex"
+  cache-control: "no-store"

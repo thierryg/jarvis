@@ -1,0 +1,16 @@
+# Weekly dependency updates (pip, GitHub Actions, Docker base images).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 10
+    groups:
+      web: {patterns: ["fastapi", "uvicorn*", "starlette", "pydantic*", "python-multipart"]}
+      ai: {patterns: ["ultralytics", "openvino", "onnxruntime*", "insightface", "torch*", "vosk", "piper-tts", "openwakeword"]}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+  - package-ecosystem: docker
+    directory: /docker
+    schedule: {interval: weekly}

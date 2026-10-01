@@ -1,0 +1,36 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/jarvis/vars/main.yml
+# Purpose : Internal variables of the jarvis role
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Environment of every uv call: managed Python and caches under the Jarvis prefix.
+jarvis_uv_env:
+  UV_PYTHON_INSTALL_DIR: "{{ jarvis_prefix }}/python"
+  UV_CACHE_DIR: /var/cache/jarvis/uv
+  UV_NO_PROGRESS: "1"
+  PATH: "/usr/local/bin:/usr/bin:/bin"
+
+# Staging directory of the sources on the target (owned by the SSH user).
+jarvis_stage_dir: "/home/{{ jarvis_admin_user }}/.cache/jarvis-src"
+# What is never shipped to the target (development, documentation, the playbook itself).
+jarvis_rsync_excludes:
+  - "--exclude=.git"
+  - "--exclude=__pycache__"
+  - "--exclude=*.pyc"
+  - "--exclude=.venv"
+  - "--exclude=.pytest_cache"
+  - "--exclude=.ruff_cache"
+  - "--exclude=*.egg-info"
+  - "--exclude=build"
+  - "--exclude=dist"
+  - "--exclude=docs"
+  - "--exclude=tests"
+  - "--exclude=docker"
+  - "--exclude=deploy/ansible"
+
+# Extras of the jarvis-home package.
+jarvis_extras: "{{ 'core,speaker' if jarvis_with_speaker | bool else 'core' }}"

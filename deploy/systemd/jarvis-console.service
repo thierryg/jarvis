@@ -1,0 +1,41 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis-console.service
+# Purpose : Local appliance console on tty1 (status screen and admin menu)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis-console.service
+# pfSense-style local console on the mini-PC's screen (tty1): system status and an admin menu.
+# It replaces the tty1 login prompt; the other virtual consoles (Alt+F2, ...) keep their regular
+# getty login. Access is protected by a web administrator account.
+[Unit]
+Description=Jarvis: local console (tty1)
+Documentation=file:///opt/jarvis/src/docs/SOFTWARE.md
+After=systemd-user-sessions.service plymouth-quit-wait.service jarvis-core.service
+# Take over tty1 from the stock getty.
+Conflicts=getty@tty1.service
+Before=getty.target
+
+[Service]
+Type=simple
+User=root
+Environment=JARVIS_CONFIG=/etc/jarvis/config.yaml TERM=linux
+ExecStart=/opt/jarvis/venv/bin/jarvis console
+# Attach stdin/stdout to tty1; errors go to the journal so they do not clutter the screen.
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+Restart=always
+RestartSec=2
+KillMode=process
+IgnoreSIGPIPE=no
+
+[Install]
+WantedBy=getty.target

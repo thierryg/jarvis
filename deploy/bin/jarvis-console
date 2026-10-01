@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/bin/jarvis-console
+# Purpose : Launch the local appliance console (pfSense-style menu) from any shell
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Installed as /usr/local/bin/jarvis-console. The console needs root (service control, restore,
+# reboot): it re-executes itself through sudo when needed.
+#
+# Environment: JARVIS_BIN (default /opt/jarvis/venv/bin/jarvis), JARVIS_CONFIG (/etc/jarvis/config.yaml).
+# Exit codes: the console's own exit code, or 4 when jarvis is not installed / library missing.
+# Shared library: installed copy first, then the repository checkout.
+for _lib in /usr/local/lib/jarvis/jarvis-common.sh "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/../../scripts/lib/jarvis-common.sh"; do
+  # shellcheck source=../../scripts/lib/jarvis-common.sh
+  [[ -r "$_lib" ]] && { . "$_lib"; break; }
+done
+[[ -n "${_JARVIS_COMMON_SH:-}" ]] || { echo "$(basename -- "$0"): jarvis-common.sh library not found" >&2; exit 4; }
+
+JARVIS_BIN="${JARVIS_BIN:-/opt/jarvis/venv/bin/jarvis}"
+export JARVIS_CONFIG="${JARVIS_CONFIG:-/etc/jarvis/config.yaml}"
+
+# main ARGS...: elevate to root if needed, then open the appliance console.
+main() {
+  [[ -x "$JARVIS_BIN" ]] || die "jarvis is not installed ($JARVIS_BIN missing): run scripts/jarvis-install.sh" "$E_DEPS"
+  if [[ $EUID -ne 0 ]]; then
+    exec sudo --preserve-env=JARVIS_CONFIG,NO_COLOR "$(readlink -f -- "$0")" "$@"
+  fi
+  exec "$JARVIS_BIN" console "$@"
+}
+
+main "$@"

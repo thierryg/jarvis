@@ -1,0 +1,34 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/tests/Dockerfile.ubuntu2604
+# Purpose : Test target that mimics a fresh Ubuntu Server 26.04 LTS install (systemd + sshd)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Used by jarvis-container-test.sh only: systemd as PID 1, OpenSSH, an "admin" sudoer and the
+# cloud-init SSH drop-in of a real server install (PasswordAuthentication yes), so that the
+# playbook runs over SSH exactly as on the mini-PC. Never use this image in production.
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive container=docker
+# Packages present on an Ubuntu Server install (the Docker image is minimized).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends systemd systemd-sysv dbus openssh-server sudo python3 \
+      iproute2 ca-certificates locales tzdata kmod procps less \
+ && rm -rf /var/lib/apt/lists/* \
+ && locale-gen en_US.UTF-8
+
+# Installer-created administrator: sudo without password in the test only.
+RUN useradd -m -s /bin/bash -G sudo admin \
+ && echo 'admin ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-admin-test \
+ && chmod 0440 /etc/sudoers.d/90-admin-test \
+ && install -d -m 700 -o admin -g admin /home/admin/.ssh \
+ && printf 'PasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/50-cloud-init.conf \
+ && systemctl enable ssh.service \
+ && systemctl mask getty@tty1.service console-getty.service
+
+# The public key is injected at start-up by jarvis-container-test.sh (bind mount).
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

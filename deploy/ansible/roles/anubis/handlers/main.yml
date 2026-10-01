@@ -1,0 +1,14 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/anubis/handlers/main.yml
+# Purpose : Handlers of the anubis role
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+- name: Restart anubis
+  ansible.builtin.systemd_service:
+    name: anubis@jarvis.service
+    state: restarted
+    daemon_reload: true

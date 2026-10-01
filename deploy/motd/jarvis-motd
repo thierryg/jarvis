@@ -1,0 +1,393 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/motd/jarvis-motd
+# Purpose : SSH message of the day: JARVIS banner, live metrics, hardware support, services
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+#
+# Installed as /usr/local/bin/jarvis-motd and called at every SSH login by
+# /etc/update-motd.d/10-jarvis (pam_motd). Prints:
+#   1. the JARVIS ASCII art with the system summary of neofetch (fastfetch when
+#      neofetch is not packaged, plain banner otherwise);
+#   2. live metrics sampled over --interval seconds: CPU (current / max / free,
+#      frequency, load), memory, disk I/O, network in/out, GPU;
+#   3. the hardware support detected by jarvis-core (/run/jarvis/capabilities.json:
+#      CPU flags, OpenVINO/ONNX devices, VAAPI) or probed directly;
+#   4. the Jarvis services: enabled/active state and, from the systemd resource
+#      accounting, CPU %, GPU %, memory, disk I/O and network traffic per unit;
+#   5. TLS certificate, security status and the available commands.
+#
+# Usage:
+#   jarvis-motd [--interval SEC] [--no-logo] [--no-color] [--help]
+#
+# Environment variables:
+#   JARVIS_COLOR=always|never|auto   colors (update-motd forces "always"); NO_COLOR disables.
+#   JARVIS_MOTD_ASCII                ASCII art file (default /usr/local/share/jarvis/jarvis.ascii).
+#
+# Prerequisites: bash >= 4.4, systemd, /proc and /sys (Linux). Optional: neofetch or
+# fastfetch, jarvis-cert, fail2ban-client, nft, python3 (default-password check).
+#
+# Exit codes:
+#   0  printed (a failing probe only hides its own line: a MOTD must never block a login)
+#   2  usage error
+
+_self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+for _lib in /usr/local/lib/jarvis/jarvis-common.sh "$(dirname -- "$_self")/../../scripts/lib/jarvis-common.sh"; do
+  # shellcheck source=../../scripts/lib/jarvis-common.sh
+  [[ -r "$_lib" ]] && { . "$_lib"; break; }
+done
+[[ -n "${_JARVIS_COMMON_SH:-}" ]] || { echo "jarvis-motd: jarvis-common.sh library not found" >&2; exit 4; }
+# A MOTD degrades gracefully: no abort on a failing probe.
+set +e
+trap - ERR
+
+INTERVAL=0.4
+SHOW_LOGO=1
+ASCII="${JARVIS_MOTD_ASCII:-/usr/local/share/jarvis/jarvis.ascii}"
+[[ -r "$ASCII" ]] || ASCII="$(dirname -- "$_self")/jarvis.ascii"
+CAPS=/run/jarvis/capabilities.json
+DB=/var/lib/jarvis/jarvis.db
+# Units shown in the services table (those not installed are skipped).
+UNITS=(jarvis-core.service jarvis-api.service jarvis-console.service anubis@jarvis.service nginx.service
+  fail2ban.service nftables.service prometheus-node-exporter.service alloy.service promtail.service
+  jarvis-backup.timer jarvis-cert-renew.timer jarvis-monitoring.path)
+
+usage() { sed -n '/^# Usage:/,/^# Prerequisites:/p' "$_self" | sed -e 's/^# \{0,1\}//' -e '$d'; }
+
+# --- formatting -------------------------------------------------------------------
+# hbytes N: human-readable byte count (1024 base).
+hbytes() {
+  awk -v b="${1:-0}" 'BEGIN { split("B KiB MiB GiB TiB", u); i = 1
+    while (b >= 1024 && i < 5) { b /= 1024; i++ }
+    printf (i == 1 ? "%d %s" : "%.1f %s"), b, u[i] }'
+}
+# hrate BYTES SECONDS: human-readable rate.
+hrate() { printf '%s/s' "$(awk -v b="${1:-0}" -v s="$2" 'BEGIN { printf "%d", (s > 0 ? b / s : 0) }' | { read -r n; hbytes "$n"; })"; }
+# bar PERCENT: 20-cell gauge, green / yellow (>= 70 %) / red (>= 90 %).
+bar() {
+  local p="${1%.*}" n c="$C_GREEN"
+  ((p > 100)) && p=100
+  ((p < 0)) && p=0
+  ((p >= 70)) && c="$C_YELLOW"
+  ((p >= 90)) && c="$C_RED"
+  n=$((p / 5))
+  printf '%s%s%s%s' "$c" "$(printf '%*s' "$n" '' | tr ' ' '#')" "$C_DIM$(printf '%*s' $((20 - n)) '' | tr ' ' '.')" "$C_RESET"
+}
+# title TEXT: section heading.
+title() { printf '\n%s%s%s\n' "$C_CYAN$C_BOLD" "$*" "$C_RESET"; }
+# kv LABEL VALUE: aligned line.
+kv() { printf '  %s%-14s%s %s\n' "$C_DIM" "$1" "$C_RESET" "$2"; }
+# state_color TEXT: green for good states, red for failures, yellow otherwise.
+state_color() {
+  case "$1" in
+    active | enabled | static | running | VALID | ok) printf '%s%s%s' "$C_GREEN" "$1" "$C_RESET" ;;
+    failed | EXPIRED | REVOKED | INVALID | missing) printf '%s%s%s' "$C_RED" "$1" "$C_RESET" ;;
+    *) printf '%s%s%s' "$C_YELLOW" "$1" "$C_RESET" ;;
+  esac
+}
+
+# cpad WIDTH TEXT: state_color TEXT padded to WIDTH visible columns (escape codes excluded).
+cpad() {
+  local pad=$(($1 - ${#2}))
+  ((pad < 1)) && pad=1
+  printf '%s%*s' "$(state_color "$2")" "$pad" ''
+}
+
+# --- samplers (/proc, /sys, systemd) --------------------------------------------------
+# cpu_sample: "total idle" jiffies from /proc/stat.
+cpu_sample() { awk '/^cpu /{ t = 0; for (i = 2; i <= 9; i++) t += $i; print t, $5 + $6 }' /proc/stat; }
+# disk_sample: "read_bytes write_bytes" summed over physical disks.
+disk_sample() {
+  awk '$3 ~ /^(sd[a-z]+|nvme[0-9]+n[0-9]+|vd[a-z]+|mmcblk[0-9]+|hd[a-z]+)$/ { r += $6; w += $10 }
+       END { printf "%d %d\n", r * 512, w * 512 }' /proc/diskstats
+}
+# net_sample: "iface rx tx" lines for every interface except loopback.
+net_sample() { awk -F'[: ]+' 'NR > 2 { sub(/^ +/, ""); split($0, a, /[: ]+/); if (a[1] != "lo") print a[1], a[2], a[10] }' /proc/net/dev; }
+# drm_busy_ns PID...: total GPU engine time (ns) from the DRM fdinfo of the given processes.
+drm_busy_ns() {
+  local pid total=0 v
+  for pid in "$@"; do
+    [[ -d /proc/$pid/fdinfo ]] || continue
+    while read -r v; do total=$((total + v)); done < <(grep -h '^drm-engine-' /proc/"$pid"/fdinfo/* 2>/dev/null | awk '{ print $2 }')
+  done
+  echo "$total"
+}
+# unit_pids UNIT: PIDs of the unit's cgroup.
+unit_pids() {
+  local cg
+  cg="$(systemctl show -P ControlGroup "$1" 2>/dev/null)"
+  [[ -n "$cg" && -r /sys/fs/cgroup$cg/cgroup.procs ]] && cat "/sys/fs/cgroup$cg/cgroup.procs" 2>/dev/null
+}
+# unit_show: "unit|load|active|enabled|cpu_ns|mem|io_r|io_w|ip_in|ip_out" for every UNITS entry.
+unit_show() {
+  systemctl show -p Id,LoadState,ActiveState,UnitFileState,CPUUsageNSec,MemoryCurrent,IOReadBytes,IOWriteBytes,IPIngressBytes,IPEgressBytes \
+    "${UNITS[@]}" 2>/dev/null | awk -F= '
+      /^$/ { if (id != "") print id "|" v["LoadState"] "|" v["ActiveState"] "|" v["UnitFileState"] "|" v["CPUUsageNSec"] "|" v["MemoryCurrent"] "|" v["IOReadBytes"] "|" v["IOWriteBytes"] "|" v["IPIngressBytes"] "|" v["IPEgressBytes"]; id = ""; delete v; next }
+      $1 == "Id" { id = $2; next }
+      { v[$1] = $2 }
+      END { if (id != "") print id "|" v["LoadState"] "|" v["ActiveState"] "|" v["UnitFileState"] "|" v["CPUUsageNSec"] "|" v["MemoryCurrent"] "|" v["IOReadBytes"] "|" v["IOWriteBytes"] "|" v["IPIngressBytes"] "|" v["IPEgressBytes"] }'
+}
+# num VALUE: the value when it is a real counter, empty otherwise ([not set], UINT64_MAX).
+num() { [[ "$1" =~ ^[0-9]+$ && "$1" != 18446744073709551615 ]] && echo "$1"; }
+
+# --- sections -------------------------------------------------------------------------
+# section_logo: ASCII art + system summary.
+section_logo() {
+  ((SHOW_LOGO)) || return 0
+  if command -v neofetch >/dev/null; then
+    neofetch --ascii "$ASCII" --ascii_colors 6 4 --colors 6 7 7 6 7 7 --color_blocks off \
+      --disable packages shell resolution de wm wm_theme theme icons term term_font font 2>/dev/null
+  elif command -v fastfetch >/dev/null; then
+    fastfetch --logo "$ASCII" --logo-type file --logo-color-1 cyan --pipe false \
+      --structure Title:Separator:OS:Host:Kernel:Uptime:CPU:GPU:Memory:Swap:Disk:LocalIp 2>/dev/null
+  else
+    printf '%s' "$C_CYAN$C_BOLD"; cat "$ASCII" 2>/dev/null; printf '%s' "$C_RESET"
+    kv "Host" "$(hostname -f 2>/dev/null || hostname) · $(. /etc/os-release && echo "$PRETTY_NAME") · $(uname -r)"
+    kv "Uptime" "$(uptime -p 2>/dev/null)"
+  fi
+}
+
+# collect: take the two samples (start / end of the interval) used by every rate below.
+collect() {
+  local -a u0 u1
+  read -r C0_T C0_I < <(cpu_sample)
+  read -r D0_R D0_W < <(disk_sample)
+  N0="$(net_sample)"
+  U0="$(unit_show)"
+  declare -gA GPU0=() GPU1=()
+  local line unit
+  while IFS='|' read -r unit _ state _; do
+    [[ "$state" == active ]] || continue
+    mapfile -t u0 < <(unit_pids "$unit")
+    ((${#u0[@]})) && GPU0[$unit]="$(drm_busy_ns "${u0[@]}")"
+  done <<<"$U0"
+  T0="$(date +%s%N)"
+  sleep "$INTERVAL"
+  T1="$(date +%s%N)"
+  read -r C1_T C1_I < <(cpu_sample)
+  read -r D1_R D1_W < <(disk_sample)
+  N1="$(net_sample)"
+  U1="$(unit_show)"
+  for unit in "${!GPU0[@]}"; do
+    mapfile -t u1 < <(unit_pids "$unit")
+    GPU1[$unit]="$(drm_busy_ns "${u1[@]}")"
+  done
+  DT_NS=$((T1 - T0))
+  DT="$(awk -v n="$DT_NS" 'BEGIN { printf "%.3f", n / 1e9 }')"
+  : "${line:=}"
+}
+
+# section_metrics: CPU, memory, disk, network, GPU.
+section_metrics() {
+  title "System metrics"
+  local busy=0 dt=$((C1_T - C0_T)) cores threads mhz maxmhz load mem
+  ((dt > 0)) && busy=$(((dt - (C1_I - C0_I)) * 100 / dt))
+  threads="$(nproc 2>/dev/null)"
+  cores="$(lscpu -p=CORE 2>/dev/null | grep -v '^#' | sort -u | wc -l)"
+  mhz="$(awk -F': ' '/^cpu MHz/ { s += $2; n++ } END { if (n) printf "%d", s / n }' /proc/cpuinfo)"
+  maxmhz="$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null)"
+  [[ -n "$maxmhz" ]] && maxmhz=$((maxmhz / 1000))
+  read -r load _ < /proc/loadavg
+  kv "CPU" "$(bar "$busy") ${busy}% used · max 100% · free $((100 - busy))% · ${cores} cores / ${threads} threads"
+  kv "" "freq ${mhz:-?} MHz${maxmhz:+ / max $maxmhz MHz} · load $(cut -d' ' -f1-3 /proc/loadavg)"
+  : "$load"
+  mem="$(awk '/^MemTotal/ { t = $2 } /^MemAvailable/ { a = $2 } /^SwapTotal/ { st = $2 } /^SwapFree/ { sf = $2 }
+             END { printf "%d %d %d %d", t * 1024, a * 1024, st * 1024, sf * 1024 }' /proc/meminfo)"
+  local mt ma st sf mp
+  read -r mt ma st sf <<<"$mem"
+  mp=$(((mt - ma) * 100 / (mt > 0 ? mt : 1)))
+  kv "Memory" "$(bar "$mp") ${mp}% · used $(hbytes $((mt - ma))) · free $(hbytes "$ma") · max $(hbytes "$mt")"
+  ((st > 0)) && kv "Swap" "used $(hbytes $((st - sf))) / $(hbytes "$st")"
+  kv "Disk I/O" "read $(hrate $((D1_R - D0_R)) "$DT") · write $(hrate $((D1_W - D0_W)) "$DT")"
+  local fs
+  for fs in / /var/lib/jarvis; do
+    [[ -d "$fs" ]] || continue
+    read -r _ size used _ pct _ < <(df -B1 --output=source,size,used,avail,pcent,target "$fs" 2>/dev/null | tail -1)
+    kv "$([[ "$fs" == / ]] && echo "Disk /" || echo "Disk data")" "$(bar "${pct%\%}") ${pct} · $(hbytes "$used") / $(hbytes "$size")${fs:+ · $fs}"
+  done
+  # Network: rate per interface with traffic or an address.
+  # Network: physical and VPN interfaces (container/VM bridges and veth pairs are skipped).
+  local iface rx tx rx0 tx0 addr label="Network"
+  while read -r iface rx tx; do
+    [[ "$iface" =~ ^(veth|docker|br-|virbr|vnet|mpqemu|cni|flannel|lxc) ]] && continue
+    read -r _ rx0 tx0 < <(grep "^$iface " <<<"$N0")
+    addr="$(ip -br -4 addr show dev "$iface" 2>/dev/null | awk '{ print $3 }')"
+    [[ -z "$addr" && $((rx - ${rx0:-rx})) -eq 0 ]] && continue
+    kv "$label" "$(printf '%-12s' "$iface") in $(hrate $((rx - ${rx0:-rx})) "$DT") · out $(hrate $((tx - ${tx0:-tx})) "$DT")${addr:+ · $addr}"
+    label=""
+  done <<<"$N1"
+  section_gpu
+}
+
+# section_gpu: DRM GPUs (driver, frequency as a busy estimate) and NVIDIA GPUs.
+section_gpu() {
+  local card drv cur max rp0 p
+  for card in /sys/class/drm/card[0-9]; do
+    [[ -e "$card/device" ]] || continue
+    drv="$(basename "$(readlink -f "$card/device/driver")" 2>/dev/null)"
+    cur="$(cat "$card/gt_act_freq_mhz" 2>/dev/null || cat "$card/gt_cur_freq_mhz" 2>/dev/null)"
+    max="$(cat "$card/gt_max_freq_mhz" 2>/dev/null)"
+    rp0="$(cat "$card/gt_RP0_freq_mhz" 2>/dev/null)"
+    max="${rp0:-$max}"
+    if [[ -n "$cur" && -n "$max" && "$max" -gt 0 ]]; then
+      p=$((cur * 100 / max))
+      kv "GPU $(basename "$card")" "$(bar "$p") ~${p}% (freq ${cur}/${max} MHz) · driver ${drv:-?}"
+    else
+      kv "GPU $(basename "$card")" "driver ${drv:-?}"
+    fi
+  done
+  if command -v nvidia-smi >/dev/null; then
+    nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null |
+      while IFS=',' read -r name util mu mt; do
+        util="${util// /}"
+        [[ "$util" =~ ^[0-9]+$ ]] || continue
+        kv "GPU nvidia" "$(bar "$util") ${util}% · ${name} · mem ${mu// /}/${mt// /} MiB"
+      done
+  fi
+}
+
+# section_hardware: capabilities published by jarvis-core, or probed here.
+section_hardware() {
+  title "Hardware support"
+  if [[ -r "$CAPS" ]] && command -v python3 >/dev/null; then
+    python3 - "$CAPS" <<'PY' 2>/dev/null && return 0
+import json, sys
+d = json.load(open(sys.argv[1]))
+c, p = d.get("capabilities", {}), d.get("performance", {})
+cpu = c.get("cpu", {})
+wanted = ["sse4_2", "avx", "avx2", "fma", "f16c", "avx512f", "avx512_vnni", "avx_vnni", "amx_tile"]
+flags = [f for f in wanted if f in cpu.get("flags", [])]
+row = lambda k, v: print(f"  \033[2m{k:<14}\033[0m {v}")
+row("CPU", f"{cpu.get('model', '?')} · {' '.join(flags) or 'no SIMD extension'}")
+row("GPU", ", ".join(f"{g.get('driver', '?')} {g.get('name', '')}".strip() for g in c.get("gpus", [])) or "none")
+row("OpenVINO", ", ".join(f"{k} ({v})" for k, v in (c.get("openvino_devices") or {}).items()) or "not available")
+row("ONNX Runtime", ", ".join(c.get("onnx_providers") or []) or "not available")
+row("VAAPI decode", ", ".join(c.get("vaapi_decode") or []) or "none")
+applied = p.get("applied") or {}
+if applied:
+    row("Auto-tuning", ", ".join(f"{k}={v}" for k, v in applied.items()))
+PY
+  fi
+  # Fallback: direct probes (jarvis-core not started yet).
+  local flags f
+  flags="$(grep -m1 '^flags' /proc/cpuinfo | cut -d: -f2)"
+  local -a have=()
+  for f in sse4_2 avx avx2 fma f16c avx512f avx512_vnni avx_vnni amx_tile; do
+    [[ " $flags " == *" $f "* ]] && have+=("$f")
+  done
+  kv "CPU" "$(grep -m1 '^model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ *//') · ${have[*]:-no SIMD extension}"
+  local nodes
+  nodes="$(find /dev/dri -maxdepth 1 -name 'renderD*' 2>/dev/null | sort | tr '\n' ' ')"
+  kv "Render node" "${nodes:-none} ${C_DIM}(VAAPI / OpenVINO GPU)${C_RESET}"
+  [[ -e /dev/accel/accel0 ]] && kv "NPU" "/dev/accel/accel0 (Intel NPU)"
+  kv "" "${C_DIM}start jarvis-core for the full detection (OpenVINO, ONNX, VAAPI codecs)${C_RESET}"
+}
+
+# section_services: state and resource consumption of every installed unit.
+section_services() {
+  title "Jarvis services"
+  printf '  %s%-26s %-10s%-10s%6s %6s %10s %19s %19s%s\n' "$C_DIM" "UNIT" "BOOT" "STATE" "CPU" "GPU" "MEMORY" "DISK R/W" "NET IN/OUT" "$C_RESET"
+  local unit load active enabled cpu mem ior iow ipi ipo prev cpu0 cpu_p gpu_p
+  while IFS='|' read -r unit load active enabled cpu mem ior iow ipi ipo; do
+    [[ "$load" == loaded ]] || continue
+    prev="$(grep "^$unit|" <<<"$U0")"
+    cpu0="$(cut -d'|' -f5 <<<"$prev")"
+    cpu_p="-"
+    if [[ -n "$(num "$cpu")" && -n "$(num "$cpu0")" && "$DT_NS" -gt 0 ]]; then
+      cpu_p="$(awk -v a="$cpu0" -v b="$cpu" -v t="$DT_NS" 'BEGIN { printf "%.1f%%", (b - a) * 100 / t }')"
+    fi
+    gpu_p="-"
+    if [[ -n "${GPU1[$unit]:-}" && "${GPU1[$unit]}" -gt 0 ]]; then
+      gpu_p="$(awk -v a="${GPU0[$unit]:-0}" -v b="${GPU1[$unit]}" -v t="$DT_NS" 'BEGIN { printf "%.0f%%", (b - a) * 100 / t }')"
+    fi
+    printf '  %-26s %s%s%6s %6s %10s %19s %19s\n' "${unit%.service}" "$(cpad 10 "${enabled:-?}")" "$(cpad 10 "$active")" \
+      "$cpu_p" "$gpu_p" "$([[ -n $(num "$mem") ]] && hbytes "$mem" || echo -)" \
+      "$([[ -n $(num "$ior") ]] && echo "$(hbytes "$ior")/$(hbytes "$iow")" || echo -)" \
+      "$([[ -n $(num "$ipi") ]] && echo "$(hbytes "$ipi")/$(hbytes "$ipo")" || echo -)"
+  done <<<"$U1"
+  printf '  %s(CPU/GPU: now; memory: current; disk and network: since the unit started)%s\n' "$C_DIM" "$C_RESET"
+}
+
+# section_security: certificate, firewall, fail2ban, default password, pending reboot.
+section_security() {
+  title "Security"
+  # The certificate key, the ruleset and the fail2ban socket are root-only: the login MOTD runs
+  # as root (pam_motd); a manual run by an administrator says so instead of showing wrong values.
+  if [[ $EUID -ne 0 ]]; then
+    kv "" "${C_DIM}run 'sudo jarvis-motd' for the certificate, firewall and fail2ban status${C_RESET}"
+    return 0
+  fi
+  if command -v jarvis-cert >/dev/null; then
+    local js state days
+    js="$(JARVIS_COLOR=never jarvis-cert status --json --no-revocation 2>/dev/null)"
+    state="$(sed -n 's/.*"state":"\([^"]*\)".*/\1/p' <<<"$js")"
+    days="$(sed -n 's/.*"days_left":\([-0-9]*\).*/\1/p' <<<"$js")"
+    kv "TLS" "$(state_color "${state:-missing}")${days:+ · $days days left} · renewal $(state_color "$(systemctl is-active jarvis-cert-renew.timer 2>/dev/null)")"
+  fi
+  if command -v nft >/dev/null; then
+    local rules
+    rules="$(nft list ruleset 2>/dev/null | grep -c "jarvis" || true)"
+    kv "Firewall" "nftables $(state_color "$(systemctl is-active nftables 2>/dev/null)")${rules:+ · jarvis rules: $rules}"
+  fi
+  if command -v fail2ban-client >/dev/null; then
+    local jails banned=0 j n
+    jails="$(fail2ban-client status 2>/dev/null | sed -n 's/.*Jail list:[[:space:]]*//p' | tr -d ' ' | tr ',' ' ')"
+    for j in $jails; do
+      n="$(fail2ban-client status "$j" 2>/dev/null | awk -F: '/Currently banned/ { gsub(/ /, "", $2); print $2 }')"
+      banned=$((banned + ${n:-0}))
+    done
+    kv "fail2ban" "jails: ${jails:-none} · banned now: $banned"
+  fi
+  if [[ -r "$DB" ]] && command -v python3 >/dev/null; then
+    python3 - "$DB" <<'PY' 2>/dev/null
+import sqlite3, sys
+con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True, timeout=1)
+rows = con.execute("SELECT username FROM users WHERE must_change_password = 1").fetchall()
+if rows:
+    print("  \033[33m\033[1m!\033[0m web account(s) still on the initial password: "
+          + ", ".join(r[0] for r in rows) + " (log in to https://<host>/ to change it)")
+PY
+  fi
+  [[ -f /var/run/reboot-required ]] && kv "Reboot" "${C_YELLOW}required$(sed 's/^/ (/;s/$/)/' /var/run/reboot-required.pkgs 2>/dev/null | head -1)${C_RESET}"
+  return 0
+}
+
+# section_commands: operator cheat sheet.
+section_commands() {
+  title "Commands"
+  kv "jarvis-console" "local appliance console (menu; admin password reset: option 3)"
+  kv "jarvis" "administration shell (help) · jarvis status · jarvis resources --watch 2"
+  kv "jarvis-cert" "TLS certificate: status | renew | export-ca"
+  kv "jarvis-motd" "show this screen again"
+  kv "systemctl" "status jarvis.target · journalctl -u jarvis-core -f"
+  printf '\n  %sjarvis-home %s · %s%s\n\n' "$C_DIM" "$(jarvis_version)" "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$C_RESET"
+}
+
+# main ARGS...: options, then every section in order.
+main() {
+  while (($#)); do
+    case "$1" in
+      --interval) INTERVAL="${2:?--interval needs a value}"; shift ;;
+      --no-logo) SHOW_LOGO=0 ;;
+      --no-color) export JARVIS_COLOR=never; setup_colors ;;
+      -h | --help) usage; exit "$E_OK" ;;
+      *) echo "jarvis-motd: unknown option $1" >&2; exit "$E_USAGE" ;;
+    esac
+    shift
+  done
+  [[ "$INTERVAL" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "jarvis-motd: invalid --interval" >&2; exit "$E_USAGE"; }
+  section_logo
+  collect
+  section_metrics
+  section_hardware
+  section_services
+  section_security
+  section_commands
+  exit "$E_OK"
+}
+
+main "$@"

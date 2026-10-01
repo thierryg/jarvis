@@ -1,0 +1,35 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/monitoring/prometheus/prometheus.yml
+# Purpose : Prometheus scrape configuration for the Jarvis mini-PC
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# Prometheus: collects metrics from the Jarvis mini-PC.
+# - node_exporter (enabled in Jarvis > Settings > Monitoring): port 9100.
+# - Jarvis /metrics endpoint through nginx (HTTPS), using the token shown in Settings > Monitoring;
+#   copy it into ./jarvis_token (a single line, no trailing newline).
+# Replace 192.168.1.10 with the mini-PC's address (or use the JARVIS_HOST variable from docker compose).
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: jarvis
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/jarvis_token
+    tls_config:
+      insecure_skip_verify: true    # Jarvis self-signed certificate; remove once a trusted certificate is in place
+    static_configs:
+      - targets: ["192.168.1.10:443"]
+        labels: {instance: jarvis}
+
+  - job_name: node
+    static_configs:
+      - targets: ["192.168.1.10:9100"]
+        labels: {instance: jarvis}

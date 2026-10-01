@@ -1,0 +1,162 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : .gitignore
+# Purpose : Files that must never be committed (artifacts, secrets, biometric data)
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+#
+# Grouped by the file types the repository produces. Committed on purpose although a broad
+# pattern below would match them: deploy/anubis/jarvis.env (non-secret Anubis template read by
+# the Ansible role) and the *.example templates. Nested .gitignore files complete this one:
+# deploy/ansible/ (collections, vault), deploy/ansible/artifacts/, deploy/ansible/inventory/.
+# Check a path with: git check-ignore -v <path>
+
+# --- Python: bytecode, packaging, tool caches and reports --------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+junit.xml
+bandit-report.*
+pip-audit-report.*
+.ipynb_checkpoints/
+
+# --- Virtual environments -----------------------------------------------------
+.venv/
+venv/
+env/
+.env/
+.python-version
+
+# --- Secrets and host configuration: NEVER commit them -----------------------
+# Templates: config/config.example.yaml, deploy/jarvis.env.example,
+# deploy/ansible/group_vars/all/vault.example.yml.
+/config/config.yaml
+*.env
+!deploy/anubis/jarvis.env
+.env.*
+!.env.example
+secrets.yaml
+secrets.yml
+vault.yml
+*.vault
+.vault_pass*
+*.key
+*.pem
+*.crt
+*.csr
+*.srl
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.htpasswd
+id_rsa*
+id_ed25519*
+deploy/monitoring/prometheus/jarvis_token
+*_token
+*.token
+
+# --- Runtime data: biometrics, databases, recordings, logs -------------------
+# Faces, voice prints and recordings are personal data (GDPR): they stay on the target.
+/data/
+faces/
+voiceprints/
+snapshots/
+recordings/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.npy
+*.npz
+*.mp4
+*.mkv
+*.avi
+*.h264
+*.h265
+*.wav
+*.flac
+*.ogg
+*.mp3
+*.log
+*.log.*
+
+# --- AI models (downloaded by 'jarvis setup-models', never versioned) ----------
+/models/
+*.onnx
+*.pt
+*.pth
+*.tflite
+*.ckpt
+*.safetensors
+*_openvino_model/
+vosk-model*/
+buffalo_*/
+yolo*.pt
+
+# --- Archives, backups and crash dumps ---------------------------------------
+# A core dump holds a process's memory (tokens, keys, frames): never commit one.
+*.tar
+*.tar.gz
+*.tgz
+*.tar.xz
+*.zip
+*.7z
+*.bak
+*.orig
+*.rej
+*.old
+core.[0-9]*
+*.core
+vgcore.*
+
+# --- Local Docker test (docker/jarvis-start.sh): config, env, local CA ----------
+docker/.local/
+
+# --- Ansible (complements deploy/ansible/.gitignore) --------------------------
+*.retry
+.ansible/
+
+# --- Generated documentation intermediates (the PDFs themselves are committed) ---
+docs/diagrams/src/*.html
+docs/diagrams/src/tmp*/
+
+# --- Editors, OS and AI-agent local state -------------------------------------
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+.DS_Store
+Thumbs.db
+desktop.ini
+.directory
+.claude/settings.local.json
+node_modules/

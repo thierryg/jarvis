@@ -1,0 +1,69 @@
+<!-- =============================================================================
+     Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+     -----------------------------------------------------------------------------
+     File    : jarvis/web/static/img/login-hero.svg
+     Purpose : Login screen illustration: face mesh scan, voice ID and access badge
+     Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+     Project : jarvis-home (version: jarvis/VERSION)
+     Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+     ============================================================================= -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 420" role="img" aria-label="Face and voice identification">
+        <defs>
+          <linearGradient id="g-face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5ab0ff"/><stop offset="1" stop-color="#1f6feb"/></linearGradient>
+          <linearGradient id="g-scan" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#38bdf8" stop-opacity="0"/><stop offset=".5" stop-color="#7dd3fc"/><stop offset="1" stop-color="#38bdf8" stop-opacity="0"/></linearGradient>
+          <radialGradient id="g-glow"><stop offset="0" stop-color="#1f6feb" stop-opacity=".35"/><stop offset="1" stop-color="#1f6feb" stop-opacity="0"/></radialGradient>
+        </defs>
+        <circle cx="260" cy="200" r="190" fill="url(#g-glow)"/>
+        <g class="ring" fill="none" stroke="#2f5d94" stroke-width="1.2">
+          <circle cx="260" cy="200" r="170" stroke-dasharray="4 10"/>
+          <circle cx="260" cy="200" r="150" stroke-dasharray="60 20" stroke="#3b82f6" stroke-opacity=".5"/>
+        </g>
+        <!-- corner brackets (detection box) -->
+        <g stroke="#7dd3fc" stroke-width="3" fill="none" stroke-linecap="round">
+          <path d="M170 80v-24h24M350 80v-24h-24M170 320v24h24M350 320v24h-24"/>
+        </g>
+        <!-- face contour -->
+        <path d="M260 72c-52 0-88 38-88 96 0 38 12 72 30 96 16 22 36 36 58 36s42-14 58-36c18-24 30-58 30-96 0-58-36-96-88-96z"
+              fill="none" stroke="url(#g-face)" stroke-width="2.4"/>
+        <!-- landmark mesh -->
+        <g stroke="#60a5fa" stroke-opacity=".45" stroke-width="1" fill="none">
+          <path d="M214 150l24 8 22-4 22 4 24-8M226 196l34 -8 34 8M236 246l24 10 24-10M260 154v58M226 196l10 50M294 196l-10 50M214 150l12 46M306 150l-12 46M238 158l22 30 22-30M236 246l-24-40M284 246l24-40"/>
+        </g>
+        <g fill="#bfdbfe">
+          <circle class="mesh-dot" cx="214" cy="150" r="3.4"/><circle class="mesh-dot" cx="238" cy="158" r="3"/>
+          <circle class="mesh-dot" cx="260" cy="154" r="3"/><circle class="mesh-dot" cx="282" cy="158" r="3"/>
+          <circle class="mesh-dot" cx="306" cy="150" r="3.4"/><circle class="mesh-dot" cx="226" cy="196" r="3.4"/>
+          <circle class="mesh-dot" cx="260" cy="188" r="3.4"/><circle class="mesh-dot" cx="294" cy="196" r="3.4"/>
+          <circle class="mesh-dot" cx="260" cy="212" r="3"/><circle class="mesh-dot" cx="236" cy="246" r="3.4"/>
+          <circle class="mesh-dot" cx="260" cy="256" r="3.4"/><circle class="mesh-dot" cx="284" cy="246" r="3.4"/>
+        </g>
+        <!-- eyes -->
+        <g fill="#e0f2fe"><ellipse cx="232" cy="176" rx="9" ry="4.5"/><ellipse cx="288" cy="176" rx="9" ry="4.5"/></g>
+        <!-- scan line -->
+        <rect class="scan-line" x="160" y="70" width="200" height="3" fill="url(#g-scan)"/>
+        <!-- match label -->
+        <g transform="translate(360 104)">
+          <rect width="138" height="54" rx="10" fill="#0f2742" stroke="#2f5d94"/>
+          <text x="14" y="22" fill="#93c5fd" font-size="11" font-family="system-ui" letter-spacing="1.5">FACE MATCH</text>
+          <text x="14" y="42" fill="#fff" font-size="17" font-weight="700" font-family="system-ui">98.7 %</text>
+          <circle cx="118" cy="27" r="7" fill="#22c55e"/>
+        </g>
+        <!-- voice waveform -->
+        <g transform="translate(22 250)">
+          <rect width="150" height="84" rx="12" fill="#0f2742" stroke="#2f5d94"/>
+          <text x="14" y="22" fill="#93c5fd" font-size="11" font-family="system-ui" letter-spacing="1.5">VOICE ID</text>
+          <g class="wave" fill="#38bdf8">
+            <rect class="d1" x="16" y="36" width="6" height="36" rx="3"/><rect class="d2" x="28" y="36" width="6" height="36" rx="3"/>
+            <rect class="d3" x="40" y="36" width="6" height="36" rx="3"/><rect class="d4" x="52" y="36" width="6" height="36" rx="3"/>
+            <rect class="d5" x="64" y="36" width="6" height="36" rx="3"/><rect class="d6" x="76" y="36" width="6" height="36" rx="3"/>
+            <rect class="d7" x="88" y="36" width="6" height="36" rx="3"/><rect class="d8" x="100" y="36" width="6" height="36" rx="3"/>
+            <rect class="d9" x="112" y="36" width="6" height="36" rx="3"/><rect class="d10" x="124" y="36" width="6" height="36" rx="3"/>
+          </g>
+        </g>
+        <!-- access granted -->
+        <g transform="translate(318 300)">
+          <rect width="192" height="46" rx="23" fill="#0f2a1a" stroke="#16a34a"/>
+          <path d="M22 23l7 7 13-14" stroke="#22c55e" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <text x="52" y="28" fill="#bbf7d0" font-size="13" font-weight="700" font-family="system-ui" letter-spacing="1">ACCESS GRANTED</text>
+        </g>
+      </svg>

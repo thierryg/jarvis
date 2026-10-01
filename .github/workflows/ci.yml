@@ -1,0 +1,140 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : .github/workflows/ci.yml
+# Purpose : DevSecOps pipeline: lint, SAST, secrets, tests, SCA, SBOM, container scan, CodeQL
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"          # weekly run: new CVEs against unchanged dependencies
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: ruff
+        run: uvx ruff check jarvis tests scripts docs/diagrams/src
+      - name: shellcheck
+        run: uvx --from shellcheck-py shellcheck scripts/*.sh scripts/lib/*.sh deploy/bin/* deploy/motd/jarvis-motd deploy/motd/10-jarvis deploy/ansible/*.sh deploy/ansible/tests/*.sh docker/*.sh
+      - name: systemd units
+        run: for f in deploy/systemd/*; do systemd-analyze verify --man=no "$f" 2>&1 | grep -v "not executable" | grep "$(basename "$f")" && exit 1 || true; done
+
+  sast:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: bandit
+        run: uvx --from "bandit[toml]" bandit -c pyproject.toml -q -r jarvis scripts
+
+  secrets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0             # scan the whole history
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: system packages
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: tests with coverage
+        run: |
+          uv venv --python 3.11 .venv
+          uv pip install --python .venv/bin/python -r requirements-dev.txt pytest-cov
+          uv pip install --python .venv/bin/python --no-deps -e .
+          PYTHONPATH=. .venv/bin/python -m pytest -q --cov=jarvis --cov-report=xml --junitxml=junit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            coverage.xml
+            junit.xml
+
+  sca-sbom:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: pip-audit (known vulnerabilities in the dependencies)
+        run: uvx pip-audit -r requirements-dev.txt --progress-spinner off
+      - name: CycloneDX SBOM of the dependency set
+        run: |
+          uv venv --python 3.11 .sbom-venv
+          uv pip install --python .sbom-venv/bin/python -r requirements-dev.txt
+          uvx --from cyclonedx-bom cyclonedx-py environment --spec-version 1.6 --output-format JSON \
+            --output-file sbom-ci.cdx.json .sbom-venv/bin/python
+      - name: Trivy scan of the SBOM
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: sbom
+          scan-ref: sbom-ci.cdx.json
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom-ci.cdx.json
+
+  container:
+    runs-on: ubuntu-24.04
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          load: true
+          tags: jarvis:ci
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: jarvis:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Trivy misconfiguration scan (Dockerfile, compose, systemd)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+
+  codeql:
+    runs-on: ubuntu-24.04
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python, javascript
+      - uses: github/codeql-action/analyze@v3

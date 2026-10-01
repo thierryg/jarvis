@@ -1,0 +1,11 @@
+{# ============================================================================
+   Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+   ----------------------------------------------------------------------------
+   File    : deploy/ansible/roles/nginx/templates/jarvis-server-name.conf.j2
+   Purpose : Server names of the Jarvis HTTPS site (same as the certificate)
+   Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+   Project : jarvis-home (version: jarvis/VERSION)
+   Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+   ============================================================================ #}
+# {{ ansible_managed }} - /etc/nginx/snippets/jarvis-server-name.conf
+server_name {{ (([jarvis_le_domain] if jarvis_tls_mode == 'letsencrypt' else jarvis_tls_names) | unique) | join(' ') }};

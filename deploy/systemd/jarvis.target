@@ -1,0 +1,19 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/systemd/jarvis.target
+# Purpose : Target grouping all Jarvis services
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# /etc/systemd/system/jarvis.target
+# Groups the Jarvis services: "systemctl start|stop|restart jarvis.target" acts on all of them.
+[Unit]
+Description=Jarvis: local smart gatekeeper (core + web API)
+Documentation=file:///opt/jarvis/src/docs/SOFTWARE.md
+Wants=jarvis-core.service jarvis-api.service nginx.service
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

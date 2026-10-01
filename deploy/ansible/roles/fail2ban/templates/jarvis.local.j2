@@ -1,0 +1,51 @@
+{# ============================================================================
+   Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+   ----------------------------------------------------------------------------
+   File    : deploy/ansible/roles/fail2ban/templates/jarvis.local.j2
+   Purpose : fail2ban jails of the Jarvis host
+   Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+   Project : jarvis-home (version: jarvis/VERSION)
+   Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+   ============================================================================ #}
+# {{ ansible_managed }} - /etc/fail2ban/jail.d/jarvis.local
+[DEFAULT]
+# Bans are nftables sets (own table, untouched by the Jarvis firewall reloads).
+banaction = nftables-multiport
+banaction_allports = nftables-allports
+bantime = {{ jarvis_fail2ban_bantime }}
+findtime = {{ jarvis_fail2ban_findtime }}
+maxretry = {{ jarvis_fail2ban_maxretry }}
+# Repeat offenders get longer and longer bans.
+bantime.increment = true
+bantime.maxtime = 1w
+ignoreip = {{ jarvis_fail2ban_ignoreip | join(' ') }}
+
+# SSH brute force (journal backend: no log file needed).
+[sshd]
+enabled = true
+mode = aggressive
+port = {{ jarvis_ssh_port }}
+backend = systemd
+
+# Web UI login brute force (401) and rate-limit hits (429).
+[jarvis-login]
+enabled = true
+filter = jarvis-login
+port = http,https
+logpath = /var/log/nginx/jarvis.access.log
+maxretry = {{ jarvis_fail2ban_login_maxretry }}
+
+# Scanners probing for well-known admin pages (404 storms in the error log).
+[nginx-botsearch]
+enabled = true
+port = http,https
+logpath = /var/log/nginx/jarvis.error.log
+
+# Anyone banned 5 times in a day is banned from every port for a week.
+[recidive]
+enabled = true
+logpath = /var/log/fail2ban.log
+banaction = %(banaction_allports)s
+bantime = 1w
+findtime = 1d
+maxretry = 5

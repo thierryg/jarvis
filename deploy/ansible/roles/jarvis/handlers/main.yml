@@ -1,0 +1,23 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/jarvis/handlers/main.yml
+# Purpose : Handlers of the jarvis role
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Reload udev
+  ansible.builtin.shell: udevadm control --reload && udevadm trigger --subsystem-match=tty --subsystem-match=hidraw
+  changed_when: true
+  when: not jarvis_in_container
+
+# Only restarts what already runs: the services role starts everything at the end.
+# try-restart (restart only if running) has no equivalent in the systemd_service module.
+- name: Restart jarvis
+  ansible.builtin.command: systemctl try-restart jarvis-api.service jarvis-core.service  # noqa: command-instead-of-module
+  changed_when: true

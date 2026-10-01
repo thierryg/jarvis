@@ -1,0 +1,5 @@
+collections/
+.cache/
+*.retry
+group_vars/all/vault.yml
+.ansible/

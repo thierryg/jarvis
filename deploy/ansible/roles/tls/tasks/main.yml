@@ -1,0 +1,82 @@
+# =============================================================================
+# Jarvis - Local smart gatekeeper (PTZ camera, face & voice recognition)
+# -----------------------------------------------------------------------------
+# File    : deploy/ansible/roles/tls/tasks/main.yml
+# Purpose : TLS certificate with jarvis-cert (local CA or Let's Encrypt) and automatic renewal
+# Author  : Thierry Gayet <thierry.gayet@labworks.fr>
+# Project : jarvis-home (version: jarvis/VERSION)
+# Copyright (c) 2026 Thierry Gayet. SPDX-License-Identifier: 0BSD
+# =============================================================================
+# "Reload nginx" is the handler of the nginx role (handlers are shared by the whole play).
+- name: Read the current certificate status
+  ansible.builtin.command: /usr/local/sbin/jarvis-cert status --json --no-revocation
+  environment: { JARVIS_COLOR: never }
+  register: tls_status
+  changed_when: false
+  failed_when: tls_status.rc not in [0, 4, 7, 8]
+
+- name: Decide whether a certificate must be issued
+  ansible.builtin.set_fact:
+    tls_current: "{{ tls_status.stdout | from_json if tls_status.rc != 4 else {} }}"
+    tls_wanted_names: "{{ ([jarvis_le_domain] if jarvis_tls_mode == 'letsencrypt' else jarvis_tls_names) | unique }}"
+
+- name: Compute the issuing decision
+  ansible.builtin.set_fact:
+    # Issue when missing, unusable (expired, revoked, key mismatch), in another mode, or when
+    # a wanted name or address is not in the certificate, or when switching Let's Encrypt
+    # between staging and production.
+    tls_issue: >-
+      {{ tls_status.rc in [4, 7]
+         or tls_current.mode | default('') != jarvis_tls_mode
+         or (tls_wanted_names | map('regex_replace', '^', 'DNS:') | reject('in', tls_current.san | default('')) | list | length > 0)
+         or (jarvis_tls_ips | map('regex_replace', '^', 'IP Address:') | reject('in', tls_current.san | default('')) | list | length > 0)
+         or (jarvis_tls_mode == 'letsencrypt' and ('STAGING' in tls_current.issuer | default('')) != jarvis_le_staging | bool) }}
+
+- name: Issue the local-CA certificate
+  ansible.builtin.command:
+    argv: >-
+      {{ ['/usr/local/sbin/jarvis-cert', '--no-reload', '--yes', 'issue', '--mode', 'local']
+         + (['--name'] | product(tls_wanted_names) | flatten)
+         + (['--ip'] | product(jarvis_tls_ips) | flatten) }}
+  environment: { JARVIS_COLOR: never }
+  when: tls_issue | bool and jarvis_tls_mode == 'local'
+  changed_when: true
+  notify: Reload nginx
+
+- name: Install the DNS plugin credentials (Let's Encrypt DNS-01)
+  ansible.builtin.copy:
+    dest: "/etc/jarvis/tls/certbot-{{ jarvis_le_dns_plugin }}.ini"
+    content: "{{ jarvis_le_dns_credentials }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: jarvis_tls_mode == 'letsencrypt' and jarvis_le_challenge == 'dns' and jarvis_le_dns_credentials is defined
+
+- name: Issue the Let's Encrypt certificate
+  ansible.builtin.command:
+    argv: >-
+      {{ ['/usr/local/sbin/jarvis-cert', '--no-reload', '--yes', 'issue', '--mode', 'letsencrypt',
+          '--domain', jarvis_le_domain, '--email', jarvis_le_email, '--challenge', jarvis_le_challenge, '--install-deps']
+         + (['--dns-plugin', jarvis_le_dns_plugin] if jarvis_le_dns_plugin else [])
+         + (['--dns-credentials', '/etc/jarvis/tls/certbot-' ~ jarvis_le_dns_plugin ~ '.ini']
+            if jarvis_le_challenge == 'dns' and jarvis_le_dns_plugin not in ['', 'manual', 'route53'] else [])
+         + (['--staging'] if jarvis_le_staging | bool else []) }}
+  environment: { JARVIS_COLOR: never }
+  when: tls_issue | bool and jarvis_tls_mode == 'letsencrypt'
+  changed_when: true
+  notify: Reload nginx
+
+- name: Enable the automatic renewal (twice a day, 30 days before expiry)
+  ansible.builtin.systemd_service:
+    name: jarvis-cert-renew.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Fetch the local CA certificate for the client devices
+  ansible.builtin.fetch:
+    src: /etc/jarvis/tls/ca/jarvis-ca.crt
+    dest: "{{ playbook_dir }}/artifacts/{{ inventory_hostname }}/jarvis-ca.crt"
+    flat: true
+  when: jarvis_fetch_ca | bool and jarvis_tls_mode == 'local'
